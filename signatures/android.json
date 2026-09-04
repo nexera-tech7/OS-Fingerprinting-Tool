@@ -1,0 +1,23 @@
+{
+  "name": "Android",
+  "key": "android",
+  "weight": 0.5,
+  "signals": {
+    "tcp": {
+      "ttl_values": [64],
+      "window_sizes": [14600, 65535]
+    },
+    "services": {
+      "indicator_ports": [5555],
+      "contra_ports": [22, 135, 139, 445, 3389],
+      "keywords": ["android", "dalvik"]
+    },
+    "banners": {
+      "keywords": ["android", "dalvik"]
+    },
+    "http": {
+      "server_keywords": [],
+      "header_keywords": ["android"]
+    }
+  }
+}

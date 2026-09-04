@@ -1,0 +1,23 @@
+{
+  "name": "Linux",
+  "key": "linux",
+  "weight": 1.0,
+  "signals": {
+    "tcp": {
+      "ttl_values": [64],
+      "window_sizes": [5840, 14600, 29200, 65535]
+    },
+    "services": {
+      "indicator_ports": [22],
+      "contra_ports": [3389, 135, 139, 445],
+      "keywords": ["openssh", "nginx", "apache", "postfix", "vsftpd", "proftpd", "exim", "dovecot", "mysql", "postgresql"]
+    },
+    "banners": {
+      "keywords": ["ubuntu", "debian", "centos", "red hat", "fedora", "arch", "alpine", "openssh", "nginx", "apache", "linux"]
+    },
+    "http": {
+      "server_keywords": ["nginx", "apache", "lighttpd", "litespeed", "caddy"],
+      "header_keywords": ["php", "x-powered-by: php", "x-powered-by: express"]
+    }
+  }
+}

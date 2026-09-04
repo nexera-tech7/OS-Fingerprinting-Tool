@@ -1,0 +1,23 @@
+{
+  "name": "macOS",
+  "key": "macos",
+  "weight": 0.8,
+  "signals": {
+    "tcp": {
+      "ttl_values": [64],
+      "window_sizes": [65535]
+    },
+    "services": {
+      "indicator_ports": [5900, 548],
+      "contra_ports": [135, 139, 445, 3389],
+      "keywords": ["apple", "macos", "bonjour"]
+    },
+    "banners": {
+      "keywords": ["macos", "darwin", "apple", "mac os"]
+    },
+    "http": {
+      "server_keywords": ["applehttp"],
+      "header_keywords": []
+    }
+  }
+}

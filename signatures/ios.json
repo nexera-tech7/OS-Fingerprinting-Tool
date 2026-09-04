@@ -1,0 +1,23 @@
+{
+  "name": "iOS",
+  "key": "ios",
+  "weight": 0.3,
+  "signals": {
+    "tcp": {
+      "ttl_values": [64],
+      "window_sizes": [65535]
+    },
+    "services": {
+      "indicator_ports": [],
+      "contra_ports": [22, 135, 139, 445, 3389, 80],
+      "keywords": []
+    },
+    "banners": {
+      "keywords": ["ios", "apple", "iphone", "ipad"]
+    },
+    "http": {
+      "server_keywords": [],
+      "header_keywords": []
+    }
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "BSD",
+  "key": "bsd",
+  "weight": 0.9,
+  "signals": {
+    "tcp": {
+      "ttl_values": [64, 255],
+      "window_sizes": [16384, 32768, 65535]
+    },
+    "services": {
+      "indicator_ports": [],
+      "contra_ports": [135, 139, 445, 3389],
+      "keywords": ["freebsd", "openbsd", "netbsd", "pfsense", "opnsense"]
+    },
+    "banners": {
+      "keywords": ["freebsd", "openbsd", "netbsd", "bsd", "pfsense", "opnsense"]
+    },
+    "http": {
+      "server_keywords": [],
+      "header_keywords": []
+    }
+  }
+}

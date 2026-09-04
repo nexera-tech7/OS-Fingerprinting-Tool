@@ -1,0 +1,23 @@
+{
+  "name": "Windows",
+  "key": "windows",
+  "weight": 1.0,
+  "signals": {
+    "tcp": {
+      "ttl_values": [128],
+      "window_sizes": [8192, 16384, 65535, 64240]
+    },
+    "services": {
+      "indicator_ports": [135, 139, 445, 3389],
+      "contra_ports": [],
+      "keywords": ["microsoft", "iis", "rdp", "smb", "msrpc", "mssql", "exchange"]
+    },
+    "banners": {
+      "keywords": ["microsoft", "windows", "iis", "win32", "win64", "filezilla", "microsoft ftp"]
+    },
+    "http": {
+      "server_keywords": ["microsoft-iis", "microsoft-httpapi"],
+      "header_keywords": ["asp.net", "x-aspnet-version", "x-aspnetmvc-version", "x-powered-by: asp.net"]
+    }
+  }
+}
