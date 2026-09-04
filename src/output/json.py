@@ -13,8 +13,9 @@ def build_json_output(
     port_results: list[PortResult],
     analysis: AnalysisResult,
     confidence: ConfidenceLevel,
+    elapsed: float | None = None,
 ) -> dict[str, Any]:
-    return {
+    data: dict[str, Any] = {
         "target": validation.normalized,
         "address_type": validation.address_type.value.lower(),
         "reachable": reachable,
@@ -32,6 +33,9 @@ def build_json_output(
         "evidence": [e.description for e in analysis.evidence if e.weight > 0],
         "warnings": analysis.warnings,
     }
+    if elapsed is not None:
+        data["scan_time_seconds"] = round(elapsed, 3)
+    return data
 
 
 def render_json(data: dict[str, Any]) -> str:

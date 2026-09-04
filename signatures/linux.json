@@ -18,6 +18,9 @@
     "http": {
       "server_keywords": ["nginx", "apache", "lighttpd", "litespeed", "caddy"],
       "header_keywords": ["php", "x-powered-by: php", "x-powered-by: express"]
+    },
+    "tls": {
+      "cert_keywords": ["ubuntu", "debian", "centos", "let's encrypt", "canonical", "red hat", "fedora"]
     }
   }
 }

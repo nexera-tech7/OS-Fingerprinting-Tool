@@ -60,6 +60,7 @@ class ScanConfig:
     mode: str = "normal"
     json_output: bool = False
     verbose: bool = False
+    output_file: str | None = None
 
     def apply_mode(self) -> None:
         if self.mode == "quick":

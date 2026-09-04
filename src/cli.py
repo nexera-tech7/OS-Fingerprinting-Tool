@@ -18,6 +18,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ports", type=str, default=None, help="Comma-separated list of ports to scan")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output")
     parser.add_argument("--version", action="version", version=f"osdetect {VERSION}")
+    parser.add_argument("--output-file", dest="output_file", default=None, metavar="FILE", help="Save results as JSON to FILE (implies structured output)")
     return parser
 
 
@@ -52,5 +53,8 @@ def parse_args(argv: list[str] | None = None) -> ScanConfig:
                     raise ValueError
         except ValueError:
             parser.error("Invalid port specification. Use comma-separated integers 1-65535.")
+
+    if args.output_file is not None:
+        config.output_file = args.output_file
 
     return config

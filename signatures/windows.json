@@ -18,6 +18,9 @@
     "http": {
       "server_keywords": ["microsoft-iis", "microsoft-httpapi"],
       "header_keywords": ["asp.net", "x-aspnet-version", "x-aspnetmvc-version", "x-powered-by: asp.net"]
+    },
+    "tls": {
+      "cert_keywords": ["microsoft", "windows server", "iis"]
     }
   }
 }

@@ -18,6 +18,9 @@
     "http": {
       "server_keywords": ["applehttp"],
       "header_keywords": []
+    },
+    "tls": {
+      "cert_keywords": ["apple", "mac os", "macos", "darwin"]
     }
   }
 }
