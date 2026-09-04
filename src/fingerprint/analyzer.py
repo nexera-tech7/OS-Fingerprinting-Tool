@@ -170,8 +170,19 @@ class Analyzer:
 
     def _score_mobile_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], is_public: bool, result: AnalysisResult) -> None:
         open_ports = {p.port for p in port_results if p.state == "open"}
-        server_ports = {22, 80, 443, 135, 139, 445, 3389, 8080}
 
+        # Port 62078 is the iTunes/iphone-sync port — strongest iOS indicator.
+        # Check this BEFORE the server-port guard so an iPhone on the LAN is
+        # never silently skipped just because it also responds on e.g. port 443.
+        if 62078 in open_ports:
+            w = 30.0
+            result.scores["ios"] += w
+            result.evidence.append(Evidence("Port 62078 (iphone-sync) open — strong iOS indicator", "ios", w))
+            # Still fall through; don't return early, more evidence may follow.
+
+        # If well-known server ports are open this is almost certainly not a
+        # mobile device, so skip the remaining low-signal heuristics.
+        server_ports = {22, 80, 443, 135, 139, 445, 3389, 8080}
         if open_ports & server_ports:
             return
 

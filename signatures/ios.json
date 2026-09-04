@@ -9,7 +9,7 @@
     },
     "services": {
       "indicator_ports": [62078],
-      "contra_ports": [22, 135, 139, 445, 3389, 80],
+      "contra_ports": [22, 135, 139, 445, 3389],
       "keywords": ["ios", "apple"]
     },
     "banners": {
@@ -18,6 +18,9 @@
     "http": {
       "server_keywords": [],
       "header_keywords": []
+    },
+    "tls": {
+      "cert_keywords": ["apple", "iphone", "ipad"]
     }
   }
 }

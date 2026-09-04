@@ -8,7 +8,7 @@ from .config import ScanConfig
 from .network.validation import validate_ip, is_scannable, AddressType
 from .network.resolver import reverse_dns
 from .scanner.ports import scan_ports, PortResult
-from .scanner.tcp import collect_tcp_fingerprint, TCPFingerprint
+from .scanner.tcp import collect_tcp_fingerprint, collect_ttl_only, TCPFingerprint
 from .scanner.banners import analyze_banner, BannerInfo
 from .scanner.http import collect_http_fingerprint, HTTPFingerprint
 from .scanner.tls import collect_tls_fingerprint, TLSFingerprint
@@ -153,6 +153,12 @@ def _collect_tcp_evidence(ip: str, open_ports: list[PortResult], timeout: float)
     for p in open_ports[:3]:
         fp = collect_tcp_fingerprint(ip, p.port, timeout)
         fps.append(fp)
+    # If no ports are open (e.g. mobile device with firewall) still attempt a
+    # ping-based TTL collection so the mobile heuristics have TTL evidence.
+    if not fps:
+        fp = collect_ttl_only(ip, timeout)
+        if fp.ttl is not None:
+            fps.append(fp)
     return fps
 
 

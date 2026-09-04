@@ -37,13 +37,37 @@ def collect_tcp_fingerprint(ip: str, port: int, timeout: float = 5.0) -> TCPFing
     return fp
 
 
+def collect_ttl_only(ip: str, timeout: float = 5.0) -> TCPFingerprint:
+    """Collect a TTL-only fingerprint via ICMP ping, without needing an open port.
+
+    Used when no ports are open (e.g. mobile devices with all ports filtered)
+    so we can still feed TTL-based evidence into the analyzer.
+    """
+    fp = TCPFingerprint()
+    remote_ttl = _ping_ttl(ip, timeout)
+    if remote_ttl is not None:
+        fp.ttl = remote_ttl
+        fp.characteristics["ttl_only"] = True
+    return fp
+
+
 def _ping_ttl(ip: str, timeout: float = 5.0) -> int | None:
     try:
         is_windows = platform.system().lower() == "windows"
+        is_ipv6 = ":" in ip
+
         if is_windows:
-            cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), ip]
+            # Windows ping supports -6 for IPv6
+            if is_ipv6:
+                cmd = ["ping", "-6", "-n", "1", "-w", str(int(timeout * 1000)), ip]
+            else:
+                cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), ip]
         else:
-            cmd = ["ping", "-c", "1", "-W", str(int(timeout)), ip]
+            # Linux/macOS: use ping6 for IPv6, ping for IPv4
+            if is_ipv6:
+                cmd = ["ping6", "-c", "1", "-W", str(int(timeout)), ip]
+            else:
+                cmd = ["ping", "-c", "1", "-W", str(int(timeout)), ip]
 
         result = subprocess.run(
             cmd,
