@@ -53,6 +53,7 @@ class Analyzer:
         self._score_banners(banners, result)
         self._score_http(http_fps, result)
         self._score_tls(tls_fps, result)
+        self._score_mobile_heuristics(port_results, tcp_fps, is_public, result)
         self._add_warnings(result, is_public, port_results)
         self._calculate_probabilities(result)
 
@@ -71,6 +72,7 @@ class Analyzer:
 
     def _score_ports(self, ports: list[PortResult], result: AnalysisResult) -> None:
         open_ports = {p.port for p in ports if p.state == "open"}
+        open_services = {p.service.lower() for p in ports if p.state == "open" and p.service}
 
         for sig in self._signatures.values():
             for ip in sig.indicator_ports:
@@ -84,11 +86,18 @@ class Analyzer:
                     penalty = -5.0 * sig.weight
                     result.scores[sig.key] += penalty
 
+            for skw in sig.service_keywords:
+                if skw.lower() in open_services:
+                    w = 8.0 * sig.weight
+                    result.scores[sig.key] += w
+                    result.evidence.append(Evidence(f"Service '{skw}' detected — matches {sig.name}", sig.key, w))
+
     def _score_banners(self, banners: list[BannerInfo], result: AnalysisResult) -> None:
         for banner in banners:
             if not banner.raw:
                 continue
 
+            scored_keys: set[str] = set()
             for os_hint in banner.os_hints:
                 hint_key = os_hint.lower()
                 if hint_key in self._signatures:
@@ -96,14 +105,19 @@ class Analyzer:
                     result.scores[hint_key] += w
                     label = banner.service_name or "Service"
                     result.evidence.append(Evidence(f"{label} banner suggests {self._signatures[hint_key].name}", hint_key, w))
+                    scored_keys.add(hint_key)
 
             raw_lower = banner.raw.lower()
             for sig in self._signatures.values():
+                if sig.key in scored_keys:
+                    continue
                 for kw in sig.banner_keywords:
                     if kw.lower() in raw_lower:
                         w = 10.0 * sig.weight
                         result.scores[sig.key] += w
                         result.evidence.append(Evidence(f"Banner keyword '{kw}' matches {sig.name}", sig.key, w))
+                        scored_keys.add(sig.key)
+                        break
 
     def _score_http(self, fps: list[HTTPFingerprint], result: AnalysisResult) -> None:
         for fp in fps:
@@ -129,10 +143,56 @@ class Analyzer:
 
     def _score_tls(self, fps: list[TLSFingerprint], result: AnalysisResult) -> None:
         for fp in fps:
+            if fp.error:
+                continue
+
             if fp.version:
                 result.evidence.append(Evidence(f"TLS {fp.version} detected", "", 0))
             if fp.cipher_name:
                 result.evidence.append(Evidence(f"Cipher: {fp.cipher_name}", "", 0))
+
+            issuer_lower = " ".join(fp.cert_issuer.values()).lower()
+            subject_lower = " ".join(fp.cert_subject.values()).lower()
+            san_lower = " ".join(fp.cert_san).lower()
+            combined = f"{issuer_lower} {subject_lower} {san_lower}"
+
+            for sig in self._signatures.values():
+                for kw in sig.banner_keywords:
+                    if kw.lower() in combined:
+                        w = 8.0 * sig.weight
+                        result.scores[sig.key] += w
+                        result.evidence.append(Evidence(f"TLS certificate contains '{kw}' — matches {sig.name}", sig.key, w))
+
+    def _score_mobile_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], is_public: bool, result: AnalysisResult) -> None:
+        open_ports = {p.port for p in port_results if p.state == "open"}
+        server_ports = {22, 80, 443, 135, 139, 445, 3389, 8080}
+
+        if open_ports & server_ports:
+            return
+
+        if 5555 in open_ports:
+            w = 25.0
+            result.scores["android"] += w
+            result.evidence.append(Evidence("ADB port 5555 open — strong Android indicator", "android", w))
+            return
+
+        if not open_ports and not is_public and len(port_results) >= 3:
+            for fp in tcp_fps:
+                if fp.ttl is not None:
+                    initial = normalize_ttl(fp.ttl)
+                    if initial == 64:
+                        w = 10.0
+                        result.scores["android"] += w * 0.6
+                        result.scores["ios"] += w * 0.4
+                        result.evidence.append(Evidence("No server ports open on private host with TTL ~64 — likely mobile device", "android", w))
+                        break
+
+        all_filtered = all(p.state == "filtered" for p in port_results) and len(port_results) >= 3
+        if all_filtered and not is_public:
+            w = 8.0
+            result.scores["android"] += w * 0.5
+            result.scores["ios"] += w * 0.5
+            result.evidence.append(Evidence("All ports filtered on private network — mobile firewall behavior", "android", w))
 
     def _add_warnings(self, result: AnalysisResult, is_public: bool, ports: list[PortResult]) -> None:
         result.warnings.append("OS identification is probabilistic, not definitive")

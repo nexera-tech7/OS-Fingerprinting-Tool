@@ -52,9 +52,6 @@ def main(argv: list[str] | None = None) -> int:
     http_fps: list[HTTPFingerprint] = []
     tls_fps: list[TLSFingerprint] = []
 
-    if not config.json_output:
-        print_target_info(validation, reachable=False, rdns=rdns)
-
     try:
         if not config.json_output:
             progress = create_progress()
@@ -90,6 +87,8 @@ def main(argv: list[str] | None = None) -> int:
                 analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public)
                 confidence = calculate_confidence(analysis, is_public)
                 progress.update(task, completed=100)
+
+            print_target_info(validation, reachable=reachable, rdns=rdns)
         else:
             port_results = scan_ports(validation.normalized, config.ports, config.timeout)
             open_ports = [p for p in port_results if p.state == "open"]

@@ -1,6 +1,8 @@
 import socket
-import struct
+import subprocess
+import re
 import logging
+import platform
 from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
@@ -18,38 +20,45 @@ class TCPFingerprint:
 def collect_tcp_fingerprint(ip: str, port: int, timeout: float = 5.0) -> TCPFingerprint:
     fp = TCPFingerprint()
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        family = socket.AF_INET6 if ":" in ip else socket.AF_INET
+        sock = socket.socket(family, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         sock.connect((ip, port))
-
-        fp.ttl = _get_ttl(sock)
-        fp.window = _get_window_size(sock)
         fp.characteristics["connected"] = True
-
         sock.close()
     except (OSError, TimeoutError) as exc:
-        logger.debug("TCP fingerprint collection failed for %s:%d — %s", ip, port, exc)
+        logger.debug("TCP connection failed for %s:%d — %s", ip, port, exc)
         fp.characteristics["connected"] = False
+
+    remote_ttl = _ping_ttl(ip, timeout)
+    if remote_ttl is not None:
+        fp.ttl = remote_ttl
 
     return fp
 
 
-def _get_ttl(sock: socket.socket) -> int | None:
+def _ping_ttl(ip: str, timeout: float = 5.0) -> int | None:
     try:
-        if sock.family == socket.AF_INET:
-            ttl_opt = sock.getsockopt(socket.IPPROTO_IP, socket.IP_TTL)
-            return ttl_opt
-    except OSError:
-        pass
-    return None
+        is_windows = platform.system().lower() == "windows"
+        if is_windows:
+            cmd = ["ping", "-n", "1", "-w", str(int(timeout * 1000)), ip]
+        else:
+            cmd = ["ping", "-c", "1", "-W", str(int(timeout)), ip]
 
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout + 5,
+        )
+        output = result.stdout
 
-def _get_window_size(sock: socket.socket) -> int | None:
-    try:
-        buf = sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
-        return buf
-    except OSError:
-        pass
+        match = re.search(r"[Tt][Tt][Ll][=:](\d+)", output)
+        if match:
+            return int(match.group(1))
+
+    except (subprocess.TimeoutExpired, OSError, ValueError) as exc:
+        logger.debug("Ping TTL extraction failed for %s — %s", ip, exc)
     return None
 
 

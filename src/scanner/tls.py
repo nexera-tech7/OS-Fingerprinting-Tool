@@ -22,7 +22,7 @@ class TLSFingerprint:
 def collect_tls_fingerprint(ip: str, port: int = 443, timeout: float = 5.0) -> TLSFingerprint:
     fp = TLSFingerprint()
     try:
-        ctx = ssl.create_default_context()
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
         ctx.set_alpn_protocols(["h2", "http/1.1"])
@@ -39,11 +39,15 @@ def collect_tls_fingerprint(ip: str, port: int = 443, timeout: float = 5.0) -> T
 
                 fp.alpn_protocol = tls_sock.selected_alpn_protocol() or ""
 
-                cert = tls_sock.getpeercert()
-                if cert:
-                    fp.cert_subject = _flatten_cert_field(cert.get("subject", ()))
-                    fp.cert_issuer = _flatten_cert_field(cert.get("issuer", ()))
-                    san = cert.get("subjectAltName", ())
+                der_cert = tls_sock.getpeercert(binary_form=True)
+                if der_cert:
+                    _parse_der_cert(der_cert, fp)
+
+                peer_cert = tls_sock.getpeercert()
+                if peer_cert:
+                    fp.cert_subject = _flatten_cert_field(peer_cert.get("subject", ()))
+                    fp.cert_issuer = _flatten_cert_field(peer_cert.get("issuer", ()))
+                    san = peer_cert.get("subjectAltName", ())
                     fp.cert_san = [v for _, v in san]
 
     except Exception as exc:
@@ -51,6 +55,34 @@ def collect_tls_fingerprint(ip: str, port: int = 443, timeout: float = 5.0) -> T
         fp.error = str(exc)
 
     return fp
+
+
+def _parse_der_cert(der_bytes: bytes, fp: TLSFingerprint) -> None:
+    try:
+        text = der_bytes.decode("ascii", errors="replace")
+    except Exception:
+        text = ""
+
+    cert_strings: list[str] = []
+    i = 0
+    while i < len(der_bytes):
+        if 0x20 <= der_bytes[i] < 0x7F:
+            s = []
+            while i < len(der_bytes) and 0x20 <= der_bytes[i] < 0x7F:
+                s.append(chr(der_bytes[i]))
+                i += 1
+            token = "".join(s)
+            if len(token) >= 3:
+                cert_strings.append(token)
+        else:
+            i += 1
+
+    for s in cert_strings:
+        sl = s.lower()
+        if not fp.cert_issuer and any(k in sl for k in ("let's encrypt", "digicert", "comodo", "globalsign", "godaddy", "verisign", "sectigo")):
+            fp.cert_issuer.setdefault("organizationName", s)
+        if any(k in sl for k in ("microsoft", "apple", "canonical", "red hat", "ubuntu", "debian", "android")):
+            fp.cert_subject.setdefault("organizationName", s)
 
 
 def _flatten_cert_field(field_tuple: tuple) -> dict[str, str]:

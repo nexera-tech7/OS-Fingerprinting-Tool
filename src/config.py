@@ -8,9 +8,9 @@ DEFAULT_TIMEOUT = 5
 QUICK_TIMEOUT = 2
 DEEP_TIMEOUT = 10
 
-DEFAULT_PORTS = [22, 80, 443, 135, 139, 445, 3389, 8080, 8443]
-QUICK_PORTS = [22, 80, 443]
-DEEP_PORTS = [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 993, 995, 1433, 1723, 3306, 3389, 5432, 5900, 8080, 8443, 9090]
+DEFAULT_PORTS = [22, 80, 443, 135, 139, 445, 548, 3389, 5555, 8080, 8443, 62078]
+QUICK_PORTS = [22, 80, 443, 5555]
+DEEP_PORTS = [21, 22, 23, 25, 53, 80, 110, 111, 135, 139, 143, 443, 445, 548, 993, 995, 1433, 1723, 3306, 3389, 5432, 5555, 5900, 8080, 8443, 9090, 62078]
 
 SIGNATURES_DIR = Path(__file__).resolve().parent.parent / "signatures"
 
@@ -32,6 +32,7 @@ SERVICE_MAP: dict[int, str] = {
     143: "imap",
     443: "https",
     445: "smb",
+    548: "afp",
     993: "imaps",
     995: "pop3s",
     1433: "mssql",
@@ -39,10 +40,12 @@ SERVICE_MAP: dict[int, str] = {
     3306: "mysql",
     3389: "rdp",
     5432: "postgresql",
+    5555: "adb",
     5900: "vnc",
     8080: "http-alt",
     8443: "https-alt",
     9090: "web-mgmt",
+    62078: "iphone-sync",
 }
 
 

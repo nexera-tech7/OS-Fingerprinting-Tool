@@ -1,7 +1,7 @@
 {
   "name": "Android",
   "key": "android",
-  "weight": 0.5,
+  "weight": 0.8,
   "signals": {
     "tcp": {
       "ttl_values": [64],
@@ -9,7 +9,7 @@
     },
     "services": {
       "indicator_ports": [5555],
-      "contra_ports": [22, 135, 139, 445, 3389],
+      "contra_ports": [135, 139, 445, 3389],
       "keywords": ["android", "dalvik"]
     },
     "banners": {
