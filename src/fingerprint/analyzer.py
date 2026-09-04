@@ -53,6 +53,7 @@ class Analyzer:
         self._score_banners(banners, result)
         self._score_http(http_fps, result)
         self._score_tls(tls_fps, result)
+        self._score_windows_heuristics(port_results, tcp_fps, result)
         self._score_mobile_heuristics(port_results, tcp_fps, is_public, result)
         self._add_warnings(result, is_public, port_results)
         self._calculate_probabilities(result)
@@ -72,6 +73,7 @@ class Analyzer:
 
     def _score_ports(self, ports: list[PortResult], result: AnalysisResult) -> None:
         open_ports = {p.port for p in ports if p.state == "open"}
+        filtered_ports = {p.port for p in ports if p.state == "filtered"}
         open_services = {p.service.lower() for p in ports if p.state == "open" and p.service}
 
         for sig in self._signatures.values():
@@ -80,6 +82,13 @@ class Analyzer:
                     w = 12.0 * sig.weight
                     result.scores[sig.key] += w
                     result.evidence.append(Evidence(f"Port {ip} open (indicator for {sig.name})", sig.key, w))
+                elif ip in filtered_ports:
+                    # Filtered indicator ports are weak evidence — a firewall is
+                    # consistent with the host being present but protecting itself.
+                    # Give half weight so a fully-firewalled Windows box still scores.
+                    w = 6.0 * sig.weight
+                    result.scores[sig.key] += w
+                    result.evidence.append(Evidence(f"Port {ip} filtered (weak indicator for {sig.name})", sig.key, w))
 
             for cp in sig.contra_ports:
                 if cp in open_ports:
@@ -91,6 +100,7 @@ class Analyzer:
                     w = 8.0 * sig.weight
                     result.scores[sig.key] += w
                     result.evidence.append(Evidence(f"Service '{skw}' detected — matches {sig.name}", sig.key, w))
+                    break  # one service keyword match per signature is enough
 
     def _score_banners(self, banners: list[BannerInfo], result: AnalysisResult) -> None:
         for banner in banners:
@@ -167,6 +177,46 @@ class Analyzer:
                         result.scores[sig.key] += w
                         result.evidence.append(Evidence(f"TLS certificate contains '{kw}' — matches {sig.name}", sig.key, w))
                         break  # one keyword match per signature is enough
+
+    def _score_windows_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], result: AnalysisResult) -> None:
+        """Extra Windows-specific heuristics that signature scoring alone misses.
+
+        Covers two common real-world cases:
+        1. Windows Firewall is on — SMB/RDP ports show as 'filtered' not 'open',
+           so indicator-port scoring gives half-weight. A cluster of the classic
+           Windows ports all being filtered together is a strong combined signal.
+        2. TTL was not collected (ping blocked) but the port pattern is clearly
+           Windows — infer the likely TTL to boost the score.
+        """
+        all_ports = {p.port: p.state for p in port_results}
+
+        # Classic Windows port cluster: 135 + (139 or 445)
+        windows_cluster = {135, 139, 445, 3389}
+        cluster_seen = {p for p in windows_cluster if p in all_ports}
+        cluster_filtered = {p for p in cluster_seen if all_ports[p] == "filtered"}
+        cluster_open = {p for p in cluster_seen if all_ports[p] == "open"}
+
+        # Multiple Windows-specific ports filtered together → combined heuristic
+        if len(cluster_filtered) >= 2 and not cluster_open:
+            w = 18.0
+            result.scores["windows"] += w
+            ports_str = ", ".join(str(p) for p in sorted(cluster_filtered))
+            result.evidence.append(Evidence(
+                f"Windows port cluster ({ports_str}) all filtered — consistent with Windows Firewall",
+                "windows", w
+            ))
+
+        # If we have no TTL data at all but Windows ports are clearly present,
+        # infer TTL=128 with reduced confidence
+        has_ttl = any(fp.ttl is not None for fp in tcp_fps)
+        has_windows_ports = bool(cluster_open) or len(cluster_filtered) >= 2
+        if not has_ttl and has_windows_ports:
+            w = 10.0
+            result.scores["windows"] += w
+            result.evidence.append(Evidence(
+                "Windows port pattern present but ICMP blocked — inferred TTL ~128",
+                "windows", w
+            ))
 
     def _score_mobile_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], is_public: bool, result: AnalysisResult) -> None:
         open_ports = {p.port for p in port_results if p.state == "open"}

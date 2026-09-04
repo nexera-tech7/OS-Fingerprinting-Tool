@@ -23,6 +23,7 @@ BANNER_PATTERNS: list[tuple[str, str, list[str]]] = [
     (r"OpenSSH[_ ](\S+)", "OpenSSH", ["linux", "bsd", "macos"]),
     (r"dropbear[_ ]?(\S*)", "Dropbear SSH", ["linux"]),
     (r"SSH-2\.0-.*Windows", "SSH", ["windows"]),
+    (r"SSH-2\.0-.*OpenSSH_for_Windows", "OpenSSH for Windows", ["windows"]),
     (r"SSH-2\.0-libssh", "libssh", ["linux"]),
     # FTP
     (r"Microsoft FTP Service", "Microsoft FTP", ["windows"]),
@@ -33,10 +34,15 @@ BANNER_PATTERNS: list[tuple[str, str, list[str]]] = [
     (r"wu-ftpd", "wu-ftpd", ["linux"]),
     # SMTP
     (r"220.*Microsoft ESMTP", "MS SMTP", ["windows"]),
+    (r"220.*Exchange", "MS Exchange", ["windows"]),
     (r"Postfix", "Postfix", ["linux"]),
     (r"Exim", "Exim", ["linux"]),
     (r"Sendmail", "Sendmail", ["linux"]),
     (r"MailEnable", "MailEnable", ["windows"]),
+    # RDP / Windows-specific protocols
+    (r"NTLMSSP", "NTLM Auth", ["windows"]),
+    (r"Windows NT", "Windows NT", ["windows"]),
+    (r"WorkgroupManager", "Windows Workgroup", ["windows"]),
     # HTTP
     (r"Apache/(\S+).*Win32", "Apache", ["windows"]),
     (r"Apache/(\S+).*Ubuntu", "Apache", ["linux"]),

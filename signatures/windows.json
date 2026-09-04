@@ -8,12 +8,12 @@
       "window_sizes": [8192, 16384, 65535, 64240]
     },
     "services": {
-      "indicator_ports": [135, 139, 445, 3389],
-      "contra_ports": [],
-      "keywords": ["microsoft", "iis", "rdp", "smb", "msrpc", "mssql", "exchange"]
+      "indicator_ports": [135, 139, 445, 3389, 1433, 5985, 5986],
+      "contra_ports": [22],
+      "keywords": ["microsoft", "iis", "rdp", "smb", "msrpc", "mssql", "exchange", "netbios", "winrm"]
     },
     "banners": {
-      "keywords": ["microsoft", "windows", "iis", "win32", "win64", "filezilla", "microsoft ftp"]
+      "keywords": ["microsoft", "windows", "iis", "win32", "win64", "filezilla", "microsoft ftp", "ms smtp", "mailenable"]
     },
     "http": {
       "server_keywords": ["microsoft-iis", "microsoft-httpapi"],
