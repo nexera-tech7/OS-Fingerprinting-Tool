@@ -8,19 +8,19 @@
       "window_sizes": [65535]
     },
     "services": {
-      "indicator_ports": [5900, 548],
+      "indicator_ports": [5900, 548, 7000, 49152],
       "contra_ports": [135, 139, 445, 3389],
-      "keywords": ["apple", "macos", "bonjour"]
+      "keywords": ["apple", "macos", "bonjour", "afp", "vnc", "airplay", "itunes"]
     },
     "banners": {
-      "keywords": ["macos", "darwin", "apple", "mac os"]
+      "keywords": ["macos", "darwin", "apple", "mac os", "applehttp", "itunes", "airplay", "bonjour"]
     },
     "http": {
-      "server_keywords": ["applehttp"],
-      "header_keywords": []
+      "server_keywords": ["applehttp", "airtunes", "itunes", "airport"],
+      "header_keywords": ["apple", "x-apple", "daap", "dmap"]
     },
     "tls": {
-      "cert_keywords": ["apple", "mac os", "macos", "darwin"]
+      "cert_keywords": ["apple", "mac os", "macos", "darwin", "icloud", "apple inc"]
     }
   }
 }

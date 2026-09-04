@@ -8,16 +8,19 @@
       "window_sizes": [14600, 65535]
     },
     "services": {
-      "indicator_ports": [5555],
-      "contra_ports": [135, 139, 445, 3389],
-      "keywords": ["android", "dalvik"]
+      "indicator_ports": [5555, 5037],
+      "contra_ports": [135, 139, 445, 3389, 548, 5900],
+      "keywords": ["android", "dalvik", "adb"]
     },
     "banners": {
-      "keywords": ["android", "dalvik"]
+      "keywords": ["android", "dalvik", "okhttp", "com.android"]
     },
     "http": {
-      "server_keywords": [],
-      "header_keywords": ["android"]
+      "server_keywords": ["dalvik", "android"],
+      "header_keywords": ["android", "dalvik", "com.android"]
+    },
+    "tls": {
+      "cert_keywords": ["android", "com.android", "dalvik"]
     }
   }
 }

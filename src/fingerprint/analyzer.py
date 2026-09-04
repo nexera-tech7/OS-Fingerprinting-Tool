@@ -53,7 +53,10 @@ class Analyzer:
         self._score_banners(banners, result)
         self._score_http(http_fps, result)
         self._score_tls(tls_fps, result)
+        self._score_linux_heuristics(port_results, tcp_fps, result)
         self._score_windows_heuristics(port_results, tcp_fps, result)
+        self._score_bsd_heuristics(port_results, tcp_fps, result)
+        self._score_macos_heuristics(port_results, result)
         self._score_mobile_heuristics(port_results, tcp_fps, is_public, result)
         self._add_warnings(result, is_public, port_results)
         self._calculate_probabilities(result)
@@ -178,6 +181,78 @@ class Analyzer:
                         result.evidence.append(Evidence(f"TLS certificate contains '{kw}' — matches {sig.name}", sig.key, w))
                         break  # one keyword match per signature is enough
 
+    def _score_linux_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], result: AnalysisResult) -> None:
+        """Linux-specific heuristics that go beyond individual port/banner scoring.
+
+        Covers three common real-world scenarios:
+        1. Linux server cluster — SSH + a database/service port is a very strong
+           combined signal that generic per-port scoring underweights.
+        2. TTL=64 disambiguation — shared with macOS/Android/iOS, but combined
+           with Linux-exclusive service ports it becomes reliable.
+        3. Linux-only service port combinations that no other OS exposes.
+        """
+        all_ports = {p.port: p.state for p in port_results}
+        open_ports  = {p for p, s in all_ports.items() if s == "open"}
+        filtered_ports = {p for p, s in all_ports.items() if s == "filtered"}
+
+        # Ports exclusive to Linux in practice
+        linux_exclusive = {111, 2049, 6379, 9200, 9300, 27017}  # rpcbind, NFS, Redis, ES, Mongo
+        linux_server    = {22, 25, 53, 3306, 5432}              # SSH, SMTP, DNS, MySQL, Postgres
+
+        exclusive_open = linux_exclusive & open_ports
+        server_open    = linux_server & open_ports
+
+        # Any Linux-exclusive service port open → strong signal
+        for port in exclusive_open:
+            port_names = {
+                111: "rpcbind", 2049: "NFS", 6379: "Redis",
+                9200: "Elasticsearch", 9300: "Elasticsearch cluster", 27017: "MongoDB",
+            }
+            w = 18.0
+            result.scores["linux"] += w
+            result.evidence.append(Evidence(
+                f"Port {port} ({port_names.get(port, 'Linux service')}) open — Linux-exclusive service",
+                "linux", w
+            ))
+
+        # SSH + any database/service port is a classic Linux server stack
+        if 22 in open_ports and (server_open - {22}):
+            extra = sorted((server_open - {22}) & open_ports)
+            port_names = {25: "SMTP", 53: "DNS", 3306: "MySQL", 5432: "PostgreSQL"}
+            extra_str = ", ".join(f"{p} ({port_names.get(p, 'service')})" for p in extra)
+            w = 15.0
+            result.scores["linux"] += w
+            result.evidence.append(Evidence(
+                f"SSH + {extra_str} — classic Linux server stack",
+                "linux", w
+            ))
+
+        # TTL=64 with no Windows/Apple ports and SSH open → confidently Linux
+        has_ttl64 = any(
+            normalize_ttl(fp.ttl) == 64
+            for fp in tcp_fps if fp.ttl is not None
+        )
+        windows_ports = {135, 139, 445, 3389} & open_ports
+        apple_ports   = {548, 5900, 7000, 62078} & open_ports
+
+        if has_ttl64 and 22 in open_ports and not windows_ports and not apple_ports:
+            w = 12.0
+            result.scores["linux"] += w
+            result.evidence.append(Evidence(
+                "TTL ~64 + SSH open + no Windows/Apple ports — consistent with Linux",
+                "linux", w
+            ))
+
+        # No Windows/Apple ports and multiple open ports → penalise Windows/macOS
+        # (already handled via contra_ports in signatures, but add a soft boost here)
+        if open_ports and not windows_ports and not apple_ports and len(open_ports) >= 2:
+            w = 6.0
+            result.scores["linux"] += w
+            result.evidence.append(Evidence(
+                "Multiple open ports with no Windows or Apple services — Linux likely",
+                "linux", w
+            ))
+
     def _score_windows_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], result: AnalysisResult) -> None:
         """Extra Windows-specific heuristics that signature scoring alone misses.
 
@@ -218,8 +293,97 @@ class Analyzer:
                 "windows", w
             ))
 
+    def _score_bsd_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], result: AnalysisResult) -> None:
+        """BSD-specific heuristics.
+
+        TTL=255 is the strongest single BSD indicator — Linux never uses it.
+        Also detects pfSense/OPNsense by their characteristic port exposure.
+        """
+        # TTL 255 is almost exclusively BSD (FreeBSD default, OpenBSD default)
+        for fp in tcp_fps:
+            if fp.ttl is not None:
+                initial = normalize_ttl(fp.ttl)
+                if initial == 255:
+                    w = 25.0
+                    result.scores["bsd"] += w
+                    result.evidence.append(Evidence(
+                        f"TTL {fp.ttl} (initial ~255) — strong BSD indicator",
+                        "bsd", w
+                    ))
+                    break
+
+        # pfSense / OPNsense commonly expose 80+443 with no SSH or Windows ports
+        all_ports = {p.port: p.state for p in port_results}
+        open_ports = {p for p, s in all_ports.items() if s == "open"}
+        pfsense_pattern = {80, 443} & open_ports
+        windows_ports = {135, 139, 445, 3389} & open_ports
+        ssh_open = 22 in open_ports
+
+        if pfsense_pattern and not windows_ports and not ssh_open:
+            # Web UI only with no SSH/Windows ports → could be pfSense/router
+            # This is weak evidence, only add if no stronger OS already dominates
+            w = 6.0
+            result.scores["bsd"] += w
+            result.evidence.append(Evidence(
+                "Web-only exposure without SSH/Windows ports — consistent with pfSense/OPNsense",
+                "bsd", w
+            ))
+
+    def _score_macos_heuristics(self, port_results: list[PortResult], result: AnalysisResult) -> None:
+        """macOS-specific heuristics.
+
+        macOS exposes unique Apple service ports that no other OS uses by default.
+        AFP (548), VNC (5900), AirPlay (7000), and UPnP (49152) together are a
+        strong macOS fingerprint.
+        """
+        all_ports = {p.port: p.state for p in port_results}
+        open_ports = {p for p, s in all_ports.items() if s == "open"}
+
+        apple_ports = {548, 5900, 7000, 49152}
+        apple_open = apple_ports & open_ports
+
+        if len(apple_open) >= 2:
+            w = 20.0
+            result.scores["macos"] += w
+            ports_str = ", ".join(str(p) for p in sorted(apple_open))
+            result.evidence.append(Evidence(
+                f"Multiple Apple service ports open ({ports_str}) — strong macOS indicator",
+                "macos", w
+            ))
+        elif len(apple_open) == 1:
+            port = next(iter(apple_open))
+            port_names = {548: "AFP", 5900: "VNC/Screen Sharing", 7000: "AirPlay", 49152: "UPnP"}
+            w = 10.0
+            result.scores["macos"] += w
+            result.evidence.append(Evidence(
+                f"Port {port} ({port_names.get(port, 'Apple service')}) open — macOS indicator",
+                "macos", w
+            ))
+
+        # AFP filtered is also a weak macOS signal — Windows/Linux don't use AFP
+        if 548 in all_ports and all_ports[548] == "filtered":
+            w = 5.0
+            result.scores["macos"] += w
+            result.evidence.append(Evidence(
+                "AFP port 548 filtered — consistent with macOS firewall",
+                "macos", w
+            ))
+
     def _score_mobile_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], is_public: bool, result: AnalysisResult) -> None:
         open_ports = {p.port for p in port_results if p.state == "open"}
+
+        # ADB port 5555 — strongest Android indicator. Check BEFORE the
+        # server-port guard so a rooted Android running SSH/HTTP still scores.
+        if 5555 in open_ports:
+            w = 30.0
+            result.scores["android"] += w
+            result.evidence.append(Evidence("ADB port 5555 open — strong Android indicator", "android", w))
+
+        # ADB internal port 5037 (local ADB daemon forwarded) — secondary indicator
+        if 5037 in open_ports:
+            w = 20.0
+            result.scores["android"] += w
+            result.evidence.append(Evidence("ADB daemon port 5037 open — Android indicator", "android", w))
 
         # Port 62078 is the iTunes/iphone-sync port — strongest iOS indicator.
         # Check this BEFORE the server-port guard so an iPhone on the LAN is
@@ -228,20 +392,15 @@ class Analyzer:
             w = 30.0
             result.scores["ios"] += w
             result.evidence.append(Evidence("Port 62078 (iphone-sync) open — strong iOS indicator", "ios", w))
-            # Still fall through; don't return early, more evidence may follow.
 
-        # If well-known server ports are open this is almost certainly not a
-        # mobile device, so skip the remaining low-signal heuristics.
+        # If well-known server ports are open and neither ADB nor iphone-sync
+        # fired, this is almost certainly not a mobile device — skip low-signal
+        # heuristics to avoid polluting scores for Linux/Windows/macOS targets.
         server_ports = {22, 80, 443, 135, 139, 445, 3389, 8080}
         if open_ports & server_ports:
             return
 
-        if 5555 in open_ports:
-            w = 25.0
-            result.scores["android"] += w
-            result.evidence.append(Evidence("ADB port 5555 open — strong Android indicator", "android", w))
-            return
-
+        # Already handled ADB above; skip the old inner check
         if not open_ports and not is_public and len(port_results) >= 3:
             for fp in tcp_fps:
                 if fp.ttl is not None:

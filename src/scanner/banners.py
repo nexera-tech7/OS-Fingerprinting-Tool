@@ -20,6 +20,12 @@ BANNER_PATTERNS: list[tuple[str, str, list[str]]] = [
     (r"OpenSSH[_ ](\S+).*Debian", "OpenSSH", ["linux"]),
     (r"OpenSSH[_ ](\S+).*FreeBSD", "OpenSSH", ["bsd"]),
     (r"OpenSSH[_ ](\S+).*macOS", "OpenSSH", ["macos"]),
+    (r"OpenSSH[_ ](\S+).*CentOS", "OpenSSH", ["linux"]),
+    (r"OpenSSH[_ ](\S+).*Red.Hat", "OpenSSH", ["linux"]),
+    (r"OpenSSH[_ ](\S+).*Fedora", "OpenSSH", ["linux"]),
+    (r"OpenSSH[_ ](\S+).*Raspbian", "OpenSSH", ["linux"]),
+    (r"OpenSSH[_ ](\S+).*Alpine", "OpenSSH", ["linux"]),
+    (r"OpenSSH[_ ](\S+).*Kali", "OpenSSH", ["linux"]),
     (r"OpenSSH[_ ](\S+)", "OpenSSH", ["linux", "bsd", "macos"]),
     (r"dropbear[_ ]?(\S*)", "Dropbear SSH", ["linux"]),
     (r"SSH-2\.0-.*Windows", "SSH", ["windows"]),
@@ -61,16 +67,37 @@ BANNER_PATTERNS: list[tuple[str, str, list[str]]] = [
     (r"MySQL", "MySQL", ["linux"]),
     (r"PostgreSQL", "PostgreSQL", ["linux"]),
     (r"Microsoft SQL Server", "MSSQL", ["windows"]),
+    (r"MongoDB", "MongoDB", ["linux"]),
     # In-memory / cache
     (r"\+PONG", "Redis", ["linux"]),
     (r"VERSION memcache", "Memcached", ["linux"]),
+    # Elasticsearch / search
+    (r"elasticsearch", "Elasticsearch", ["linux"]),
     # Telnet/console
     (r"Welcome.*Cisco", "Cisco IOS", ["linux"]),
     (r"RouterOS", "MikroTik RouterOS", ["linux"]),
+    (r"OpenWrt", "OpenWrt", ["linux"]),
+    # Printers / embedded Linux
+    (r"CUPS/(\S+)", "CUPS", ["linux"]),
+    (r"Raspbian", "Raspbian", ["linux"]),
     # macOS / Apple
+    (r"Darwin/(\S+)", "Darwin", ["macos"]),
     (r"Darwin", "Darwin", ["macos"]),
+    (r"AirTunes/(\S+)", "AirTunes", ["macos"]),
+    (r"DAAP-Server: iTunes/(\S+)", "iTunes DAAP", ["macos"]),
+    (r"iTunes/(\S+)", "iTunes", ["macos"]),
+    # BSD variants
+    (r"FreeBSD[/ ](\S+)", "FreeBSD", ["bsd"]),
+    (r"OpenBSD[/ ](\S+)", "OpenBSD", ["bsd"]),
+    (r"NetBSD[/ ](\S+)", "NetBSD", ["bsd"]),
+    (r"pfSense", "pfSense", ["bsd"]),
+    (r"OPNsense", "OPNsense", ["bsd"]),
+    (r"TrueNAS", "TrueNAS", ["bsd"]),
+    (r"FreeNAS", "FreeNAS", ["bsd"]),
     # Android
     (r"JDWP-Handshake", "ADB JDWP", ["android"]),
+    (r"Android[/ ](\S+)", "Android", ["android"]),
+    (r"okhttp/(\S+)", "OkHttp", ["android"]),
 ]
 
 

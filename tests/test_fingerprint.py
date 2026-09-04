@@ -55,6 +55,43 @@ class TestAnalyzer:
         assert result.likely_os == "linux"
         assert result.probabilities["linux"] > result.probabilities["windows"]
 
+    def test_linux_server_stack(self, analyzer):
+        """SSH + MySQL + DNS — classic Linux server."""
+        ports = [
+            PortResult(22, "open", "ssh"),
+            PortResult(53, "open", "dns"),
+            PortResult(3306, "open", "mysql"),
+            PortResult(80, "open", "http"),
+        ]
+        tcp = [TCPFingerprint(ttl=64)]
+        http = [HTTPFingerprint(server="nginx/1.24.0")]
+        result = analyzer.analyze(tcp, ports, [], http, [])
+        assert result.likely_os == "linux"
+        assert result.probabilities["linux"] > result.probabilities["windows"]
+
+    def test_linux_exclusive_port(self, analyzer):
+        """Redis port open — Linux-exclusive service."""
+        ports = [
+            PortResult(22, "open", "ssh"),
+            PortResult(6379, "open", "redis"),
+        ]
+        tcp = [TCPFingerprint(ttl=64)]
+        result = analyzer.analyze(tcp, ports, [], [], [])
+        assert result.likely_os == "linux"
+
+    def test_linux_no_windows_ports(self, analyzer):
+        """TTL 64 + SSH + no Windows ports → Linux over macOS."""
+        ports = [
+            PortResult(22, "open", "ssh"),
+            PortResult(80, "open", "http"),
+            PortResult(443, "open", "https"),
+        ]
+        tcp = [TCPFingerprint(ttl=62)]  # 2 hops away, still ~64
+        http = [HTTPFingerprint(server="Apache/2.4.54")]
+        result = analyzer.analyze(tcp, ports, [], http, [])
+        assert result.likely_os == "linux"
+        assert result.probabilities["linux"] > result.probabilities["macos"]
+
     def test_windows_fingerprint(self, analyzer):
         ports = [
             PortResult(135, "open", "msrpc"),
@@ -67,6 +104,50 @@ class TestAnalyzer:
         result = analyzer.analyze(tcp, ports, [], http, [])
         assert result.likely_os == "windows"
         assert result.probabilities["windows"] > result.probabilities["linux"]
+
+    def test_android_adb_fingerprint(self, analyzer):
+        ports = [
+            PortResult(5555, "open", "adb"),
+            PortResult(80, "filtered", "http"),
+            PortResult(443, "filtered", "https"),
+        ]
+        tcp = [TCPFingerprint(ttl=64)]
+        result = analyzer.analyze(tcp, ports, [], [], [])
+        assert result.likely_os == "android"
+        assert result.probabilities["android"] > result.probabilities["linux"]
+
+    def test_android_adb_with_server_ports(self, analyzer):
+        """Rooted Android running SSH should still detect Android via ADB port."""
+        ports = [
+            PortResult(5555, "open", "adb"),
+            PortResult(22, "open", "ssh"),
+        ]
+        tcp = [TCPFingerprint(ttl=64)]
+        result = analyzer.analyze(tcp, ports, [], [], [])
+        assert result.probabilities["android"] > 0
+
+    def test_bsd_ttl255_fingerprint(self, analyzer):
+        ports = [
+            PortResult(22, "open", "ssh", "SSH-2.0-OpenSSH_9.3 FreeBSD-20230719"),
+            PortResult(80, "open", "http"),
+        ]
+        banners = [analyze_banner(p.banner) for p in ports if p.banner]
+        tcp = [TCPFingerprint(ttl=255)]
+        result = analyzer.analyze(tcp, ports, banners, [], [])
+        assert result.likely_os == "bsd"
+        assert result.probabilities["bsd"] > result.probabilities["linux"]
+
+    def test_macos_apple_ports(self, analyzer):
+        ports = [
+            PortResult(548, "open", "afp"),
+            PortResult(5900, "open", "vnc"),
+            PortResult(22, "open", "ssh", "SSH-2.0-OpenSSH_9.0 macOS"),
+        ]
+        banners = [analyze_banner(p.banner) for p in ports if p.banner]
+        tcp = [TCPFingerprint(ttl=64)]
+        result = analyzer.analyze(tcp, ports, banners, [], [])
+        assert result.likely_os == "macos"
+        assert result.probabilities["macos"] > result.probabilities["linux"]
 
     def test_no_evidence(self, analyzer):
         ports = [PortResult(80, "filtered", "http")]
@@ -97,10 +178,40 @@ class TestBannerAnalysis:
         assert b.service_name == "OpenSSH"
         assert "linux" in b.os_hints
 
+    def test_openssh_centos(self):
+        b = analyze_banner("SSH-2.0-OpenSSH_7.4 CentOS")
+        assert "linux" in b.os_hints
+
+    def test_openssh_raspbian(self):
+        b = analyze_banner("SSH-2.0-OpenSSH_9.2p1 Raspbian")
+        assert "linux" in b.os_hints
+        assert "bsd" not in b.os_hints
+
+    def test_redis_banner(self):
+        b = analyze_banner("+PONG")
+        assert b.service_name == "Redis"
+        assert "linux" in b.os_hints
+
+    def test_mongodb_banner(self):
+        b = analyze_banner("MongoDB 7.0.1")
+        assert "linux" in b.os_hints
+
+    def test_openwrt_banner(self):
+        b = analyze_banner("OpenWrt LuCI")
+        assert "linux" in b.os_hints
+
     def test_iis(self):
         b = analyze_banner("Microsoft-IIS/10.0")
         assert b.service_name == "IIS"
         assert "windows" in b.os_hints
+
+    def test_freebsd_ssh(self):
+        b = analyze_banner("SSH-2.0-OpenSSH_9.3 FreeBSD-20230719")
+        assert "bsd" in b.os_hints
+
+    def test_darwin_banner(self):
+        b = analyze_banner("Darwin/22.6.0")
+        assert "macos" in b.os_hints
 
     def test_empty(self):
         b = analyze_banner("")

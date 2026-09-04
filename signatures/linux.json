@@ -8,19 +8,36 @@
       "window_sizes": [5840, 14600, 29200, 65535]
     },
     "services": {
-      "indicator_ports": [22],
-      "contra_ports": [3389, 135, 139, 445],
-      "keywords": ["openssh", "nginx", "apache", "postfix", "vsftpd", "proftpd", "exim", "dovecot", "mysql", "postgresql"]
+      "indicator_ports": [22, 25, 53, 111, 2049, 3306, 5432, 6379, 9200, 9300, 27017],
+      "contra_ports": [3389, 135, 139, 445, 548, 62078],
+      "keywords": [
+        "openssh", "nginx", "apache", "postfix", "vsftpd", "proftpd", "exim",
+        "dovecot", "mysql", "postgresql", "redis", "elasticsearch", "mongodb",
+        "smtp", "dns", "rpcbind", "nfs", "tomcat", "gunicorn", "haproxy",
+        "squid", "bind", "samba"
+      ]
     },
     "banners": {
-      "keywords": ["ubuntu", "debian", "centos", "red hat", "fedora", "arch", "alpine", "openssh", "nginx", "apache", "linux"]
+      "keywords": [
+        "ubuntu", "debian", "centos", "red hat", "fedora", "arch", "alpine",
+        "openssh", "nginx", "apache", "linux", "raspbian", "openwrt", "kali",
+        "gentoo", "slackware", "oracle linux", "rocky linux", "almalinux",
+        "amazon linux", "suse", "opensuse", "manjaro", "mint"
+      ]
     },
     "http": {
-      "server_keywords": ["nginx", "apache", "lighttpd", "litespeed", "caddy"],
-      "header_keywords": ["php", "x-powered-by: php", "x-powered-by: express"]
+      "server_keywords": ["nginx", "apache", "lighttpd", "litespeed", "caddy", "gunicorn", "uvicorn", "tornado", "cherokee"],
+      "header_keywords": [
+        "x-powered-by: php", "x-powered-by: express", "x-powered-by: ruby",
+        "x-runtime", "x-varnish", "x-drupal-cache", "x-generator: drupal",
+        "server: gunicorn", "server: uvicorn"
+      ]
     },
     "tls": {
-      "cert_keywords": ["ubuntu", "debian", "centos", "let's encrypt", "canonical", "red hat", "fedora"]
+      "cert_keywords": [
+        "ubuntu", "debian", "centos", "let's encrypt", "canonical", "red hat",
+        "fedora", "alpine", "arch linux", "amazon", "suse", "oracle"
+      ]
     }
   }
 }

@@ -17,7 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=None, help="Connection timeout in seconds")
     parser.add_argument("--ports", type=str, default=None, help="Comma-separated list of ports to scan")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output")
-    parser.add_argument("--version", action="version", version=f"osdetect {VERSION}")
+    parser.add_argument("--version", "-V", action="version", version=f"osdetect {VERSION}")
     parser.add_argument("--output-file", dest="output_file", default=None, metavar="FILE", help="Save results as JSON to FILE (implies structured output)")
     return parser
 
