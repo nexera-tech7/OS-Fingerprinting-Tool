@@ -159,11 +159,14 @@ class Analyzer:
             combined = f"{issuer_lower} {subject_lower} {san_lower}"
 
             for sig in self._signatures.values():
-                for kw in sig.banner_keywords:
+                # Prefer dedicated TLS cert keywords when available
+                keywords = sig.tls_cert_keywords if sig.tls_cert_keywords else sig.banner_keywords
+                for kw in keywords:
                     if kw.lower() in combined:
                         w = 8.0 * sig.weight
                         result.scores[sig.key] += w
                         result.evidence.append(Evidence(f"TLS certificate contains '{kw}' — matches {sig.name}", sig.key, w))
+                        break  # one keyword match per signature is enough
 
     def _score_mobile_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], is_public: bool, result: AnalysisResult) -> None:
         open_ports = {p.port for p in port_results if p.state == "open"}

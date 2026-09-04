@@ -64,5 +64,19 @@ def calculate_confidence(result: AnalysisResult, is_public: bool = False) -> Con
 
 
 def _has_conflicting_evidence(result: AnalysisResult) -> bool:
-    os_keys_with_evidence = {e.os_key for e in result.evidence if e.weight > 5 and e.os_key}
-    return len(os_keys_with_evidence) >= 3
+    """Return True when the top two OS scores are within 25 points of each other
+    AND at least two distinct OS keys have meaningful evidence weight.
+
+    This is a more reliable conflict detector than simply counting the number of
+    OS keys that have any evidence, which fires too easily on low-signal scans.
+    """
+    significant = {e.os_key for e in result.evidence if e.weight > 5 and e.os_key}
+    if len(significant) < 2:
+        return False
+
+    probs = sorted(result.probabilities.values(), reverse=True)
+    if len(probs) < 2:
+        return False
+
+    # Tight race between the top two candidates → genuinely ambiguous
+    return (probs[0] - probs[1]) <= 25

@@ -5,6 +5,23 @@ from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
+# Headers captured beyond Server — ordered by fingerprinting value
+_INTERESTING_HEADERS = (
+    "X-Powered-By",
+    "X-AspNet-Version",
+    "X-AspNetMvc-Version",
+    "X-Generator",
+    "Via",
+    "Set-Cookie",
+    "ETag",
+    "X-Frame-Options",
+    "X-Content-Type-Options",
+    "Content-Type",
+    "X-Runtime",          # Rails apps (Linux indicator)
+    "X-Drupal-Cache",     # Drupal (Linux/PHP indicator)
+    "X-Varnish",          # Varnish cache (Linux indicator)
+)
+
 
 @dataclass
 class HTTPFingerprint:
@@ -28,14 +45,14 @@ def collect_http_fingerprint(ip: str, port: int = 80, timeout: float = 5.0, use_
         else:
             conn = http.client.HTTPConnection(ip, port, timeout=timeout)
 
-        conn.request("HEAD", "/", headers={"Host": ip, "User-Agent": "osdetect/1.0"})
+        conn.request("HEAD", "/", headers={"Host": ip, "User-Agent": "osdetect/1.0", "Accept": "*/*"})
         resp = conn.getresponse()
 
         fp.status_code = resp.status
         fp.server = resp.getheader("Server", "")
         fp.redirect_url = resp.getheader("Location", "")
 
-        for name in ("X-Powered-By", "X-AspNet-Version", "X-AspNetMvc-Version", "X-Generator", "Via"):
+        for name in _INTERESTING_HEADERS:
             val = resp.getheader(name, "")
             if val:
                 fp.headers[name] = val

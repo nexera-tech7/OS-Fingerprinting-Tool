@@ -1,5 +1,6 @@
 import json
 import logging
+import functools
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -20,10 +21,18 @@ class OSSignature:
     http_server_keywords: list[str] = field(default_factory=list)
     service_keywords: list[str] = field(default_factory=list)
     header_keywords: list[str] = field(default_factory=list)
+    tls_cert_keywords: list[str] = field(default_factory=list)
     weight: float = 1.0
 
 
+@functools.lru_cache(maxsize=1)
 def load_signatures(directory: Path | None = None) -> list[OSSignature]:
+    """Load and cache OS signatures from JSON files.
+
+    The result is memoised so repeated calls within the same process
+    (e.g. multiple scans or tests) don't hit the filesystem again.
+    Pass a different *directory* to bust the cache intentionally.
+    """
     sig_dir = directory or SIGNATURES_DIR
     signatures: list[OSSignature] = []
 
@@ -49,6 +58,7 @@ def _parse_signature(data: dict, fallback_key: str) -> OSSignature:
     services = signals.get("services", {})
     banners = signals.get("banners", {})
     http = signals.get("http", {})
+    tls = signals.get("tls", {})
 
     return OSSignature(
         name=data.get("name", fallback_key.capitalize()),
@@ -61,5 +71,6 @@ def _parse_signature(data: dict, fallback_key: str) -> OSSignature:
         http_server_keywords=http.get("server_keywords", []),
         service_keywords=services.get("keywords", []),
         header_keywords=http.get("header_keywords", []),
+        tls_cert_keywords=tls.get("cert_keywords", []),
         weight=data.get("weight", 1.0),
     )

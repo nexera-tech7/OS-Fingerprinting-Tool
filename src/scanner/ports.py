@@ -1,9 +1,9 @@
 import socket
 import logging
-import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
-from ..config import SERVICE_MAP, RATE_LIMIT_DELAY
+from ..config import SERVICE_MAP, MAX_SCAN_WORKERS
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +29,19 @@ def scan_port(ip: str, port: int, timeout: float = 5.0) -> PortResult:
 
 
 def scan_ports(ip: str, ports: list[int], timeout: float = 5.0) -> list[PortResult]:
+    """Scan ports concurrently and return results sorted by port number."""
     results: list[PortResult] = []
-    for port in ports:
-        logger.debug("Checking port %d", port)
-        results.append(scan_port(ip, port, timeout))
-        time.sleep(RATE_LIMIT_DELAY)
+    workers = min(MAX_SCAN_WORKERS, len(ports)) if ports else 1
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = {executor.submit(scan_port, ip, port, timeout): port for port in ports}
+        for future in as_completed(futures):
+            port = futures[future]
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                logger.debug("Unexpected error scanning port %d: %s", port, exc)
+                results.append(PortResult(port=port, state="filtered", service=SERVICE_MAP.get(port, "unknown")))
+    results.sort(key=lambda r: r.port)
     return results
 
 

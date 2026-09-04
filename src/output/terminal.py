@@ -22,13 +22,15 @@ def print_banner() -> None:
     console.print()
 
 
-def print_target_info(validation: ValidationResult, reachable: bool, rdns: str | None = None) -> None:
+def print_target_info(validation: ValidationResult, reachable: bool, rdns: str | None = None, elapsed: float | None = None) -> None:
     console.print("[bold]Target[/bold]")
     console.print(f"  IP:          {validation.normalized}")
     console.print(f"  Type:        {validation.address_type.value}")
     console.print(f"  Reachable:   {'Yes' if reachable else 'No'}")
     if rdns:
         console.print(f"  Hostname:    {rdns}")
+    if elapsed is not None:
+        console.print(f"  Scan time:   {elapsed:.2f}s")
     console.print()
 
 

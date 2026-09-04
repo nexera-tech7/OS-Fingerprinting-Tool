@@ -1,5 +1,7 @@
 import sys
+import time
 import logging
+from pathlib import Path
 
 from .cli import parse_args
 from .config import ScanConfig
@@ -45,14 +47,10 @@ def main(argv: list[str] | None = None) -> int:
     is_public = validation.address_type == AddressType.PUBLIC
 
     rdns = reverse_dns(validation.normalized)
-    reachable = False
-    port_results: list[PortResult] = []
-    tcp_fps: list[TCPFingerprint] = []
-    banners: list[BannerInfo] = []
-    http_fps: list[HTTPFingerprint] = []
-    tls_fps: list[TLSFingerprint] = []
 
     try:
+        scan_start = time.monotonic()
+
         if not config.json_output:
             progress = create_progress()
             with progress:
@@ -70,37 +68,31 @@ def main(argv: list[str] | None = None) -> int:
                 progress.update(task, completed=50)
 
                 logger.debug("Analyzing banners")
-                banners = [analyze_banner(p.banner) for p in open_ports if p.banner]
+                banners = [analyze_banner(p.banner, p.port) for p in open_ports if p.banner]
                 progress.update(task, completed=60)
 
                 logger.debug("Collecting HTTP evidence")
                 http_fps = _collect_http_evidence(validation.normalized, open_ports, config.timeout)
-                progress.update(task, completed=80)
+                progress.update(task, completed=75)
 
                 logger.debug("Collecting TLS evidence")
                 tls_fps = _collect_tls_evidence(validation.normalized, open_ports, config.timeout)
                 progress.update(task, completed=90)
 
-                logger.debug("Loading signatures")
+                logger.debug("Loading signatures and analyzing")
                 signatures = load_signatures()
                 analyzer = Analyzer(signatures)
                 analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public)
                 confidence = calculate_confidence(analysis, is_public)
                 progress.update(task, completed=100)
 
-            print_target_info(validation, reachable=reachable, rdns=rdns)
+            elapsed = time.monotonic() - scan_start
+            print_target_info(validation, reachable=reachable, rdns=rdns, elapsed=elapsed)
         else:
-            port_results = scan_ports(validation.normalized, config.ports, config.timeout)
-            open_ports = [p for p in port_results if p.state == "open"]
-            reachable = len(open_ports) > 0
-            tcp_fps = _collect_tcp_evidence(validation.normalized, open_ports, config.timeout)
-            banners = [analyze_banner(p.banner) for p in open_ports if p.banner]
-            http_fps = _collect_http_evidence(validation.normalized, open_ports, config.timeout)
-            tls_fps = _collect_tls_evidence(validation.normalized, open_ports, config.timeout)
-            signatures = load_signatures()
-            analyzer = Analyzer(signatures)
-            analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public)
-            confidence = calculate_confidence(analysis, is_public)
+            port_results, open_ports, reachable, tcp_fps, banners, http_fps, tls_fps, analysis, confidence = _run_scan(
+                validation.normalized, config, is_public
+            )
+            elapsed = time.monotonic() - scan_start
 
     except KeyboardInterrupt:
         print_error("Scan interrupted by user")
@@ -111,13 +103,49 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     if config.json_output:
-        data = build_json_output(validation, reachable, port_results, analysis, confidence)
-        print(render_json(data))
+        data = build_json_output(validation, reachable, port_results, analysis, confidence, elapsed)
+        output = render_json(data)
+        print(output)
+        if config.output_file:
+            try:
+                Path(config.output_file).write_text(output, encoding="utf-8")
+                print_info(f"Results saved to {config.output_file}")
+            except OSError as exc:
+                print_error(f"Could not write output file: {exc}")
+                return 1
     else:
         print_port_table(port_results)
         print_results(analysis, confidence)
+        if config.output_file:
+            data = build_json_output(validation, reachable, port_results, analysis, confidence, elapsed)
+            try:
+                Path(config.output_file).write_text(render_json(data), encoding="utf-8")
+                print_info(f"Results saved to {config.output_file}")
+            except OSError as exc:
+                print_error(f"Could not write output file: {exc}")
+                return 1
 
     return 0
+
+
+def _run_scan(
+    ip: str,
+    config: ScanConfig,
+    is_public: bool,
+):
+    """Shared scan pipeline used by the JSON / non-progress path."""
+    port_results = scan_ports(ip, config.ports, config.timeout)
+    open_ports = [p for p in port_results if p.state == "open"]
+    reachable = len(open_ports) > 0
+    tcp_fps = _collect_tcp_evidence(ip, open_ports, config.timeout)
+    banners = [analyze_banner(p.banner, p.port) for p in open_ports if p.banner]
+    http_fps = _collect_http_evidence(ip, open_ports, config.timeout)
+    tls_fps = _collect_tls_evidence(ip, open_ports, config.timeout)
+    signatures = load_signatures()
+    analyzer = Analyzer(signatures)
+    analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public)
+    confidence = calculate_confidence(analysis, is_public)
+    return port_results, open_ports, reachable, tcp_fps, banners, http_fps, tls_fps, analysis, confidence
 
 
 def _collect_tcp_evidence(ip: str, open_ports: list[PortResult], timeout: float) -> list[TCPFingerprint]:

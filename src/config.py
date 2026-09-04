@@ -16,6 +16,9 @@ SIGNATURES_DIR = Path(__file__).resolve().parent.parent / "signatures"
 
 RATE_LIMIT_DELAY = 0.1
 
+# Maximum number of concurrent port-scan threads
+MAX_SCAN_WORKERS = 50
+
 OS_CATEGORIES = ["linux", "windows", "android", "ios", "macos", "bsd", "unknown"]
 
 SERVICE_MAP: dict[int, str] = {
