@@ -130,7 +130,7 @@ def _collect_tcp_evidence(ip: str, open_ports: list[PortResult], timeout: float)
 
 def _collect_http_evidence(ip: str, open_ports: list[PortResult], timeout: float) -> list[HTTPFingerprint]:
     fps: list[HTTPFingerprint] = []
-    http_ports = {80, 8080, 8443}
+    http_ports = {80, 8080}
     https_ports = {443, 8443}
     for p in open_ports:
         if p.port in http_ports:
@@ -159,4 +159,14 @@ def _setup_logging(verbose: bool) -> None:
 
 
 if __name__ == "__main__":
+    sys.exit(main())
+
+
+def cli_entry() -> None:
+    """Entry point for the installed `osdetect` command.
+
+    Wraps main() and calls sys.exit() so the process exit code is
+    correctly propagated to the shell (setuptools entry points discard
+    a plain integer return value).
+    """
     sys.exit(main())

@@ -131,6 +131,7 @@ class Analyzer:
                         w = 18.0 * sig.weight
                         result.scores[sig.key] += w
                         result.evidence.append(Evidence(f"HTTP Server '{fp.server}' matches {sig.name}", sig.key, w))
+                        break  # only score the first matching keyword per signature
 
             for name, val in fp.headers.items():
                 val_lower = val.lower()
@@ -140,6 +141,7 @@ class Analyzer:
                             w = 15.0 * sig.weight
                             result.scores[sig.key] += w
                             result.evidence.append(Evidence(f"Header {name}='{val}' matches {sig.name}", sig.key, w))
+                            break  # only score the first matching keyword per signature
 
     def _score_tls(self, fps: list[TLSFingerprint], result: AnalysisResult) -> None:
         for fp in fps:
@@ -184,7 +186,8 @@ class Analyzer:
                         w = 10.0
                         result.scores["android"] += w * 0.6
                         result.scores["ios"] += w * 0.4
-                        result.evidence.append(Evidence("No server ports open on private host with TTL ~64 — likely mobile device", "android", w))
+                        result.evidence.append(Evidence("No server ports open on private host with TTL ~64 — likely mobile device", "android", w * 0.6))
+                        result.evidence.append(Evidence("No server ports open on private host with TTL ~64 — likely mobile device", "ios", w * 0.4))
                         break
 
         all_filtered = all(p.state == "filtered" for p in port_results) and len(port_results) >= 3
@@ -192,7 +195,8 @@ class Analyzer:
             w = 8.0
             result.scores["android"] += w * 0.5
             result.scores["ios"] += w * 0.5
-            result.evidence.append(Evidence("All ports filtered on private network — mobile firewall behavior", "android", w))
+            result.evidence.append(Evidence("All ports filtered on private network — mobile firewall behavior", "android", w * 0.5))
+            result.evidence.append(Evidence("All ports filtered on private network — mobile firewall behavior", "ios", w * 0.5))
 
     def _add_warnings(self, result: AnalysisResult, is_public: bool, ports: list[PortResult]) -> None:
         result.warnings.append("OS identification is probabilistic, not definitive")

@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-osdetect = "src.main:main"
+osdetect = "src.main:cli_entry"
 
 [tool.setuptools.packages.find]
 include = ["src*"]

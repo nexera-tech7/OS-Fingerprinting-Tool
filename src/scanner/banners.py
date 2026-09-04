@@ -1,6 +1,6 @@
 import re
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -10,11 +10,7 @@ class BannerInfo:
     raw: str
     service_name: str = ""
     version: str = ""
-    os_hints: list[str] = None
-
-    def __post_init__(self) -> None:
-        if self.os_hints is None:
-            self.os_hints = []
+    os_hints: list[str] = field(default_factory=list)
 
 
 BANNER_PATTERNS: list[tuple[str, str, list[str]]] = [

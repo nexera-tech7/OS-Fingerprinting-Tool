@@ -3,6 +3,19 @@ from src.fingerprint.confidence import calculate_confidence, ConfidenceLevel
 from src.fingerprint.analyzer import AnalysisResult, Evidence
 from src.config import OS_CATEGORIES
 
+# Ordinal order for ConfidenceLevel comparisons (lowest → highest)
+_CONFIDENCE_ORDER = [
+    ConfidenceLevel.VERY_LOW,
+    ConfidenceLevel.LOW,
+    ConfidenceLevel.MEDIUM,
+    ConfidenceLevel.HIGH,
+    ConfidenceLevel.VERY_HIGH,
+]
+
+
+def _confidence_rank(level: ConfidenceLevel) -> int:
+    return _CONFIDENCE_ORDER.index(level)
+
 
 def _make_result(likely_os: str, top_prob: int, evidence: list[Evidence] | None = None) -> AnalysisResult:
     r = AnalysisResult()
@@ -46,14 +59,16 @@ class TestConfidence:
         result2 = _make_result("linux", 60, evidence2)
         conf_linux = calculate_confidence(result2)
 
-        assert conf_android.value <= conf_linux.value or conf_android == conf_linux
+        assert _confidence_rank(conf_android) <= _confidence_rank(conf_linux)
+
 
     def test_public_ip_reduces_confidence(self):
         evidence = [Evidence("Match", "linux", 15), Evidence("Match2", "linux", 15)]
         result = _make_result("linux", 70, evidence)
         conf_private = calculate_confidence(result, is_public=False)
         conf_public = calculate_confidence(result, is_public=True)
-        assert conf_public.value <= conf_private.value or conf_public == conf_private
+        assert _confidence_rank(conf_public) <= _confidence_rank(conf_private)
+
 
     def test_conflicting_evidence(self):
         evidence = [

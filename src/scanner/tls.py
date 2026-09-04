@@ -40,8 +40,6 @@ def collect_tls_fingerprint(ip: str, port: int = 443, timeout: float = 5.0) -> T
                 fp.alpn_protocol = tls_sock.selected_alpn_protocol() or ""
 
                 der_cert = tls_sock.getpeercert(binary_form=True)
-                if der_cert:
-                    _parse_der_cert(der_cert, fp)
 
                 peer_cert = tls_sock.getpeercert()
                 if peer_cert:
@@ -49,6 +47,10 @@ def collect_tls_fingerprint(ip: str, port: int = 443, timeout: float = 5.0) -> T
                     fp.cert_issuer = _flatten_cert_field(peer_cert.get("issuer", ()))
                     san = peer_cert.get("subjectAltName", ())
                     fp.cert_san = [v for _, v in san]
+                elif der_cert:
+                    # Fall back to manual DER parsing when the TLS context
+                    # cannot decode the certificate (e.g. CERT_NONE mode)
+                    _parse_der_cert(der_cert, fp)
 
     except Exception as exc:
         logger.debug("TLS fingerprint failed for %s:%d — %s", ip, port, exc)

@@ -4,7 +4,6 @@ from rich.table import Table
 from rich.text import Text
 from rich.progress import Progress, BarColumn, TextColumn, TaskProgressColumn
 from rich import box
-import time
 
 from ..config import VERSION
 from ..network.validation import ValidationResult
