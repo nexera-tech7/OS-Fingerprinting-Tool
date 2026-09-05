@@ -45,6 +45,7 @@ class Analyzer:
         http_fps: list[HTTPFingerprint],
         tls_fps: list[TLSFingerprint],
         is_public: bool = False,
+        mobile_carrier: str | None = None,
     ) -> AnalysisResult:
         result = AnalysisResult()
 
@@ -58,7 +59,8 @@ class Analyzer:
         self._score_bsd_heuristics(port_results, tcp_fps, result)
         self._score_macos_heuristics(port_results, result)
         self._score_mobile_heuristics(port_results, tcp_fps, is_public, result)
-        self._add_warnings(result, is_public, port_results)
+        self._score_carrier_heuristics(port_results, mobile_carrier, result)
+        self._add_warnings(result, is_public, port_results, mobile_carrier)
         self._calculate_probabilities(result)
 
         return result
@@ -85,13 +87,12 @@ class Analyzer:
                     w = 12.0 * sig.weight
                     result.scores[sig.key] += w
                     result.evidence.append(Evidence(f"Port {ip} open (indicator for {sig.name})", sig.key, w))
-                elif ip in filtered_ports:
-                    # Filtered indicator ports are weak evidence — a firewall is
-                    # consistent with the host being present but protecting itself.
-                    # Give half weight so a fully-firewalled Windows box still scores.
-                    w = 6.0 * sig.weight
-                    result.scores[sig.key] += w
-                    result.evidence.append(Evidence(f"Port {ip} filtered (weak indicator for {sig.name})", sig.key, w))
+                # NOTE: filtered indicator ports are NOT scored here.
+                # Generic filtered scoring produced massive false positives —
+                # every device with a firewall accumulated Windows points from
+                # filtered SMB/RDP ports even when the host was Android/Linux.
+                # Filtered port evidence is only added by OS-specific heuristics
+                # (_score_windows_heuristics) which require corroborating signals.
 
             for cp in sig.contra_ports:
                 if cp in open_ports:
@@ -243,9 +244,10 @@ class Analyzer:
                 "linux", w
             ))
 
-        # No Windows/Apple ports and multiple open ports → penalise Windows/macOS
-        # (already handled via contra_ports in signatures, but add a soft boost here)
-        if open_ports and not windows_ports and not apple_ports and len(open_ports) >= 2:
+        # Multiple open ports with no Windows/Apple services → soft Linux nudge.
+        # Require at least 2 actually *open* ports to avoid boosting Linux for
+        # firewalled Android/mobile devices that have everything filtered.
+        if len(open_ports) >= 2 and not windows_ports and not apple_ports:
             w = 6.0
             result.scores["linux"] += w
             result.evidence.append(Evidence(
@@ -254,25 +256,39 @@ class Analyzer:
             ))
 
     def _score_windows_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], result: AnalysisResult) -> None:
-        """Extra Windows-specific heuristics that signature scoring alone misses.
+        """Windows-specific heuristics: filtered port cluster + TTL inference.
 
-        Covers two common real-world cases:
-        1. Windows Firewall is on — SMB/RDP ports show as 'filtered' not 'open',
-           so indicator-port scoring gives half-weight. A cluster of the classic
-           Windows ports all being filtered together is a strong combined signal.
-        2. TTL was not collected (ping blocked) but the port pattern is clearly
-           Windows — infer the likely TTL to boost the score.
+        Filtered port scoring is intentionally gated behind corroborating evidence
+        to prevent false positives on Android/Linux/mobile devices where Windows
+        ports also appear filtered (because the firewall drops everything).
         """
         all_ports = {p.port: p.state for p in port_results}
 
-        # Classic Windows port cluster: 135 + (139 or 445)
         windows_cluster = {135, 139, 445, 3389}
-        cluster_seen = {p for p in windows_cluster if p in all_ports}
+        cluster_seen     = {p for p in windows_cluster if p in all_ports}
         cluster_filtered = {p for p in cluster_seen if all_ports[p] == "filtered"}
-        cluster_open = {p for p in cluster_seen if all_ports[p] == "open"}
+        cluster_open     = {p for p in cluster_seen if all_ports[p] == "open"}
 
-        # Multiple Windows-specific ports filtered together → combined heuristic
-        if len(cluster_filtered) >= 2 and not cluster_open:
+        # --- Corroboration check ---
+        # Only apply filtered-port heuristics when something else already hints
+        # at Windows — TTL=128, a Windows banner, or an IIS/ASP.NET HTTP header.
+        has_ttl128 = any(normalize_ttl(fp.ttl) == 128 for fp in tcp_fps if fp.ttl is not None)
+        has_windows_evidence = (
+            has_ttl128
+            or result.scores.get("windows", 0) > 0
+        )
+
+        # Open Windows ports: always score regardless
+        for port in cluster_open:
+            w = 12.0
+            result.scores["windows"] += w
+            result.evidence.append(Evidence(
+                f"Port {port} open (indicator for Windows)",
+                "windows", w
+            ))
+
+        # Filtered cluster: only score when corroborated
+        if len(cluster_filtered) >= 2 and not cluster_open and has_windows_evidence:
             w = 18.0
             result.scores["windows"] += w
             ports_str = ", ".join(str(p) for p in sorted(cluster_filtered))
@@ -281,10 +297,9 @@ class Analyzer:
                 "windows", w
             ))
 
-        # If we have no TTL data at all but Windows ports are clearly present,
-        # infer TTL=128 with reduced confidence
+        # TTL absent but port pattern clearly Windows → infer TTL=128
         has_ttl = any(fp.ttl is not None for fp in tcp_fps)
-        has_windows_ports = bool(cluster_open) or len(cluster_filtered) >= 2
+        has_windows_ports = bool(cluster_open) or (len(cluster_filtered) >= 2 and has_windows_evidence)
         if not has_ttl and has_windows_ports:
             w = 10.0
             result.scores["windows"] += w
@@ -312,7 +327,9 @@ class Analyzer:
                     ))
                     break
 
-        # pfSense / OPNsense commonly expose 80+443 with no SSH or Windows ports
+        # pfSense / OPNsense commonly expose 80+443 with no SSH or Windows ports.
+        # Require them to actually be *open* (not just filtered) to avoid
+        # triggering on mobile/Android devices where everything is filtered.
         all_ports = {p.port: p.state for p in port_results}
         open_ports = {p for p, s in all_ports.items() if s == "open"}
         pfsense_pattern = {80, 443} & open_ports
@@ -320,8 +337,6 @@ class Analyzer:
         ssh_open = 22 in open_ports
 
         if pfsense_pattern and not windows_ports and not ssh_open:
-            # Web UI only with no SSH/Windows ports → could be pfSense/router
-            # This is weak evidence, only add if no stronger OS already dominates
             w = 6.0
             result.scores["bsd"] += w
             result.evidence.append(Evidence(
@@ -360,14 +375,10 @@ class Analyzer:
                 "macos", w
             ))
 
-        # AFP filtered is also a weak macOS signal — Windows/Linux don't use AFP
-        if 548 in all_ports and all_ports[548] == "filtered":
-            w = 5.0
-            result.scores["macos"] += w
-            result.evidence.append(Evidence(
-                "AFP port 548 filtered — consistent with macOS firewall",
-                "macos", w
-            ))
+        # AFP filtered is a weak macOS signal only on private/LAN hosts.
+        # On a public IP every port may be filtered by the carrier NAT/firewall,
+        # so this heuristic would fire spuriously for any unresponsive device.
+        # Skip it entirely — the open-port checks above are sufficient.
 
     def _score_mobile_heuristics(self, port_results: list[PortResult], tcp_fps: list[TCPFingerprint], is_public: bool, result: AnalysisResult) -> None:
         open_ports = {p.port for p in port_results if p.state == "open"}
@@ -421,25 +432,83 @@ class Analyzer:
             result.evidence.append(Evidence("All ports filtered on private network — mobile firewall behavior", "android", w * 0.5))
             result.evidence.append(Evidence("All ports filtered on private network — mobile firewall behavior", "ios", w * 0.5))
 
-    def _add_warnings(self, result: AnalysisResult, is_public: bool, ports: list[PortResult]) -> None:
+    def _score_carrier_heuristics(self, port_results: list[PortResult], mobile_carrier: str | None, result: AnalysisResult) -> None:
+        """Use reverse-DNS carrier detection to score mobile OS when TCP evidence is absent.
+
+        When a public IP belongs to a known mobile carrier (au, SoftBank, Jio, etc.)
+        and all ports are filtered, the device is almost certainly a mobile phone.
+        We split the score evenly between Android and iOS since we cannot distinguish
+        them from the outside — Android simply gets a slight edge (more common globally).
+        """
+        if not mobile_carrier:
+            return
+
+        open_ports = {p.port for p in port_results if p.state == "open"}
+        all_filtered = len(open_ports) == 0 and len(port_results) > 0
+
+        if all_filtered:
+            # Strong signal: known mobile carrier + completely firewalled
+            android_w = 35.0
+            ios_w = 25.0
+            result.scores["android"] += android_w
+            result.scores["ios"] += ios_w
+            result.evidence.append(Evidence(
+                f"Reverse DNS matches mobile carrier '{mobile_carrier}' — likely Android or iOS device behind NAT",
+                "android", android_w
+            ))
+            result.evidence.append(Evidence(
+                f"Reverse DNS matches mobile carrier '{mobile_carrier}' — possible iOS device behind NAT",
+                "ios", ios_w
+            ))
+        else:
+            # Carrier IP with some open ports — weaker signal, could be a carrier server
+            w = 12.0
+            result.scores["android"] += w
+            result.evidence.append(Evidence(
+                f"Reverse DNS matches mobile carrier '{mobile_carrier}'",
+                "android", w
+            ))
+
+    def _add_warnings(self, result: AnalysisResult, is_public: bool, ports: list[PortResult], mobile_carrier: str | None = None) -> None:
         result.warnings.append("OS identification is probabilistic, not definitive")
 
-        if is_public:
-            result.warnings.append("Public IP may represent a NAT gateway, router, proxy, or load balancer")
-
         open_ports = [p for p in ports if p.state == "open"]
+        filtered_ports = [p for p in ports if p.state == "filtered"]
+        all_filtered = len(filtered_ports) > 0 and len(open_ports) == 0
+
+        if is_public:
+            if mobile_carrier:
+                result.warnings.append(
+                    f"IP reverse-DNS matches mobile carrier '{mobile_carrier}'. "
+                    f"This is the carrier's NAT gateway — the actual device (likely Android or iOS) "
+                    f"is not directly reachable from the internet."
+                )
+            else:
+                result.warnings.append("Public IP may represent a NAT gateway, router, proxy, or load balancer")
+                if all_filtered:
+                    result.warnings.append(
+                        "All ports are filtered — device is behind a firewall or carrier NAT. "
+                        "OS fingerprinting requires observable open ports or TTL data."
+                    )
+
         if not open_ports:
             result.warnings.append("No open ports detected — evidence is very limited")
 
         total = sum(max(0, s) for s in result.scores.values())
-        if total < 10:
+        if total < 12:
             result.warnings.append("Insufficient evidence to determine the operating system")
 
     def _calculate_probabilities(self, result: AnalysisResult) -> None:
         clamped = {k: max(0.0, v) for k, v in result.scores.items()}
         total = sum(clamped.values())
 
-        if total == 0:
+        # Require a minimum total score before committing to any OS.
+        # Below this threshold the evidence is too weak to be meaningful —
+        # a single filtered port or one ambiguous TTL should not produce
+        # a confident OS label at 100%.
+        MIN_SCORE_THRESHOLD = 12.0
+
+        if total == 0 or total < MIN_SCORE_THRESHOLD:
             result.probabilities = {k: 0 for k in OS_CATEGORIES}
             result.probabilities["unknown"] = 100
             result.likely_os = "unknown"

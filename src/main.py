@@ -6,7 +6,7 @@ from pathlib import Path
 from .cli import parse_args
 from .config import ScanConfig
 from .network.validation import validate_ip, is_scannable, AddressType
-from .network.resolver import reverse_dns
+from .network.resolver import reverse_dns, detect_mobile_carrier
 from .scanner.ports import scan_ports, PortResult
 from .scanner.tcp import collect_tcp_fingerprint, collect_ttl_only, TCPFingerprint
 from .scanner.banners import analyze_banner, BannerInfo
@@ -47,6 +47,7 @@ def main(argv: list[str] | None = None) -> int:
     is_public = validation.address_type == AddressType.PUBLIC
 
     rdns = reverse_dns(validation.normalized)
+    mobile_carrier = detect_mobile_carrier(rdns)
 
     try:
         scan_start = time.monotonic()
@@ -82,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
                 logger.debug("Loading signatures and analyzing")
                 signatures = load_signatures()
                 analyzer = Analyzer(signatures)
-                analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public)
+                analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public, mobile_carrier)
                 confidence = calculate_confidence(analysis, is_public)
                 progress.update(task, completed=100)
 
@@ -90,7 +91,7 @@ def main(argv: list[str] | None = None) -> int:
             print_target_info(validation, reachable=reachable, rdns=rdns, elapsed=elapsed)
         else:
             port_results, open_ports, reachable, tcp_fps, banners, http_fps, tls_fps, analysis, confidence = _run_scan(
-                validation.normalized, config, is_public
+                validation.normalized, config, is_public, mobile_carrier
             )
             elapsed = time.monotonic() - scan_start
 
@@ -132,6 +133,7 @@ def _run_scan(
     ip: str,
     config: ScanConfig,
     is_public: bool,
+    mobile_carrier: str | None = None,
 ):
     """Shared scan pipeline used by the JSON / non-progress path."""
     port_results = scan_ports(ip, config.ports, config.timeout)
@@ -143,7 +145,7 @@ def _run_scan(
     tls_fps = _collect_tls_evidence(ip, open_ports, config.timeout)
     signatures = load_signatures()
     analyzer = Analyzer(signatures)
-    analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public)
+    analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public, mobile_carrier)
     confidence = calculate_confidence(analysis, is_public)
     return port_results, open_ports, reachable, tcp_fps, banners, http_fps, tls_fps, analysis, confidence
 
