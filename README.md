@@ -38,7 +38,7 @@ Professional terminal-based OS fingerprinting tool. Performs passive, low-impact
 
 ```bash
 git clone https://github.com/nexera-tech7/OS-Fingerprinting-Tool
-cd os-fingerprint
+cd OS-Fingerprinting-Tool
 python -m venv .venv
 source .venv/bin/activate      # Linux/macOS
 # .venv\Scripts\activate       # Windows
