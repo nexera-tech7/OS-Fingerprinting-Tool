@@ -8,7 +8,7 @@ from .config import ScanConfig
 from .network.validation import validate_ip, is_scannable, AddressType
 from .network.resolver import reverse_dns, detect_mobile_carrier
 from .scanner.ports import scan_ports, PortResult
-from .scanner.tcp import collect_tcp_fingerprint, collect_ttl_only, TCPFingerprint
+from .scanner.tcp import collect_tcp_fingerprint, collect_ttl_only, TCPFingerprint, estimate_hops
 from .scanner.banners import analyze_banner, BannerInfo
 from .scanner.http import collect_http_fingerprint, HTTPFingerprint
 from .scanner.tls import collect_tls_fingerprint, TLSFingerprint
@@ -32,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _setup_logging(config.verbose)
 
-    if not config.json_output:
+    if not config.json_output and not config.no_banner:
         print_banner()
 
     validation = validate_ip(config.target)
@@ -55,40 +55,35 @@ def main(argv: list[str] | None = None) -> int:
         if not config.json_output:
             progress = create_progress()
             with progress:
-                task = progress.add_task("Scanning", total=100)
+                task = progress.add_task("Resolving & scanning ports", total=100)
 
-                logger.debug("Scanning ports")
                 port_results = scan_ports(validation.normalized, config.ports, config.timeout)
-                progress.update(task, completed=30)
+                progress.update(task, completed=30, description="Collecting TCP/TTL evidence")
 
                 open_ports = [p for p in port_results if p.state == "open"]
                 reachable = len(open_ports) > 0
 
-                logger.debug("Collecting TCP evidence")
                 tcp_fps = _collect_tcp_evidence(validation.normalized, open_ports, config.timeout)
-                progress.update(task, completed=50)
+                progress.update(task, completed=50, description="Analyzing banners")
 
-                logger.debug("Analyzing banners")
                 banners = [analyze_banner(p.banner, p.port) for p in open_ports if p.banner]
-                progress.update(task, completed=60)
+                progress.update(task, completed=60, description="HTTP fingerprinting")
 
-                logger.debug("Collecting HTTP evidence")
                 http_fps = _collect_http_evidence(validation.normalized, open_ports, config.timeout)
-                progress.update(task, completed=75)
+                progress.update(task, completed=75, description="TLS fingerprinting")
 
-                logger.debug("Collecting TLS evidence")
                 tls_fps = _collect_tls_evidence(validation.normalized, open_ports, config.timeout)
-                progress.update(task, completed=90)
+                progress.update(task, completed=90, description="Analyzing evidence")
 
-                logger.debug("Loading signatures and analyzing")
                 signatures = load_signatures()
                 analyzer = Analyzer(signatures)
                 analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public, mobile_carrier)
                 confidence = calculate_confidence(analysis, is_public)
-                progress.update(task, completed=100)
+                progress.update(task, completed=100, description="Done")
 
             elapsed = time.monotonic() - scan_start
-            print_target_info(validation, reachable=reachable, rdns=rdns, elapsed=elapsed)
+            hops = _estimate_hops_from_fps(tcp_fps)
+            print_target_info(validation, reachable=reachable, rdns=rdns, elapsed=elapsed, hops=hops)
         else:
             port_results, open_ports, reachable, tcp_fps, banners, http_fps, tls_fps, analysis, confidence = _run_scan(
                 validation.normalized, config, is_public, mobile_carrier
@@ -103,8 +98,10 @@ def main(argv: list[str] | None = None) -> int:
         print_error(f"Scan failed: {exc}")
         return 1
 
+    hops = _estimate_hops_from_fps(tcp_fps)
+
     if config.json_output:
-        data = build_json_output(validation, reachable, port_results, analysis, confidence, elapsed)
+        data = build_json_output(validation, reachable, port_results, analysis, confidence, elapsed, rdns=rdns, hops=hops)
         output = render_json(data)
         print(output)
         if config.output_file:
@@ -118,7 +115,7 @@ def main(argv: list[str] | None = None) -> int:
         print_port_table(port_results)
         print_results(analysis, confidence)
         if config.output_file:
-            data = build_json_output(validation, reachable, port_results, analysis, confidence, elapsed)
+            data = build_json_output(validation, reachable, port_results, analysis, confidence, elapsed, rdns=rdns, hops=hops)
             try:
                 Path(config.output_file).write_text(render_json(data), encoding="utf-8")
                 print_info(f"Results saved to {config.output_file}")
@@ -127,6 +124,14 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
 
     return 0
+
+
+def _estimate_hops_from_fps(tcp_fps: list[TCPFingerprint]) -> int | None:
+    for fp in tcp_fps:
+        h = estimate_hops(fp.ttl)
+        if h is not None:
+            return h
+    return None
 
 
 def _run_scan(

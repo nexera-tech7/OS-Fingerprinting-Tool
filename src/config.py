@@ -70,6 +70,7 @@ class ScanConfig:
     mode: str = "normal"
     json_output: bool = False
     verbose: bool = False
+    no_banner: bool = False
     output_file: str | None = None
 
     def apply_mode(self) -> None:

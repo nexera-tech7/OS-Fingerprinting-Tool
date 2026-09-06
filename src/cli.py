@@ -17,6 +17,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=None, help="Connection timeout in seconds")
     parser.add_argument("--ports", type=str, default=None, help="Comma-separated list of ports to scan")
     parser.add_argument("--verbose", action="store_true", help="Enable verbose debug output")
+    parser.add_argument("--no-banner", dest="no_banner", action="store_true", help="Suppress the startup banner")
     parser.add_argument("--version", "-V", action="version", version=f"osdetect {VERSION}")
     parser.add_argument("--output-file", dest="output_file", default=None, metavar="FILE", help="Save results as JSON to FILE (implies structured output)")
     return parser
@@ -30,7 +31,7 @@ def parse_args(argv: list[str] | None = None) -> ScanConfig:
         parser.print_help()
         sys.exit(1)
 
-    config = ScanConfig(target=args.target, verbose=args.verbose, json_output=args.json_output)
+    config = ScanConfig(target=args.target, verbose=args.verbose, json_output=args.json_output, no_banner=args.no_banner)
 
     if args.quick and args.deep:
         parser.error("Cannot use --quick and --deep together")
