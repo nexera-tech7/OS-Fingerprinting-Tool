@@ -1,12 +1,17 @@
-# osdetect v1.3.1
+# osdetect v1.3.2
 
 Professional terminal-based OS fingerprinting tool. Performs passive, low-impact network fingerprinting against authorized targets and estimates the likely operating system using probability-based scoring.
+
+## What's New in v1.3.2
+
+**Fixes**
+- **Release notes corrected** - v1.3.1 notes now describe only the actual fixes
+- Version bumped to 1.3.2
 
 ## What's New in v1.3.1
 
 **Fixes**
-- **Emoji removed from terminal output** - OS icons (penguin, window, apple, etc.) and the check/warning/cross/info symbols are gone; output is plain text and renders the same in every terminal
-- **Windows console crash fixed** - emoji could raise `UnicodeEncodeError` on legacy code pages (cp1252/cp437) and abort the report; plain ASCII markers (`+`, `!`, `Error:`, `Info:`) avoid this
+- **Windows console crash fixed** - non-ASCII characters in the report could raise `UnicodeEncodeError` on legacy code pages (cp1252/cp437); terminal output now uses plain ASCII markers (`+`, `!`, `Error:`, `Info:`)
 - **Dead code removed** - unused `_format_os_name()` helper deleted from `output/terminal.py`; `_OS_META` simplified to (name, colour)
 - **Non-ASCII arrows removed** from README text, test comments and a test docstring
 
@@ -94,7 +99,7 @@ osdetect 203.0.113.10 --verbose
 
 ```
 ╔══════════════════════════════════════════════╗
-║           OSDETECT v1.3.1                    ║
+║           OSDETECT v1.3.2                    ║
 ║         OS Fingerprinting Tool               ║
 ╚══════════════════════════════════════════════╝
 Target
@@ -195,9 +200,12 @@ signatures/              OS signature JSON files (easily extensible)
 
 ## Changelog
 
+### v1.3.2
+- Docs: corrected v1.3.1 release notes
+- Version bumped to 1.3.2 (`pyproject.toml`, `config.py`, README)
+
 ### v1.3.1
-- Terminal: removed all emoji OS icons and status symbols; evidence uses `+`, warnings `!`, errors `Error:`, info `Info:`
-- Terminal: fixed possible `UnicodeEncodeError` on Windows consoles with legacy code pages
+- Terminal: fixed possible `UnicodeEncodeError` on Windows consoles with legacy code pages; evidence uses `+`, warnings `!`, errors `Error:`, info `Info:`
 - Terminal: removed unused `_format_os_name()`; `_OS_META` entries are now (name, colour)
 - Docs/tests: replaced non-ASCII arrows with plain text
 - Version bumped to 1.3.1 (`pyproject.toml`, `config.py`, README)
