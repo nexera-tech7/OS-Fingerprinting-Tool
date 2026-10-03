@@ -1,6 +1,14 @@
-# osdetect v1.3.0
+# osdetect v1.3.1
 
 Professional terminal-based OS fingerprinting tool. Performs passive, low-impact network fingerprinting against authorized targets and estimates the likely operating system using probability-based scoring.
+
+## What's New in v1.3.1
+
+**Fixes**
+- **Emoji removed from terminal output** - OS icons (penguin, window, apple, etc.) and the check/warning/cross/info symbols are gone; output is plain text and renders the same in every terminal
+- **Windows console crash fixed** - emoji could raise `UnicodeEncodeError` on legacy code pages (cp1252/cp437) and abort the report; plain ASCII markers (`+`, `!`, `Error:`, `Info:`) avoid this
+- **Dead code removed** - unused `_format_os_name()` helper deleted from `output/terminal.py`; `_OS_META` simplified to (name, colour)
+- **Non-ASCII arrows removed** from README text, test comments and a test docstring
 
 ## What's New in v1.3.0
 
@@ -14,7 +22,7 @@ Professional terminal-based OS fingerprinting tool. Performs passive, low-impact
 - **Redis / Elasticsearch / MongoDB** are no longer treated as Linux-exclusive (they run on Windows); only rpcbind and NFS are
 - **Sharper probabilities** — scores are sharpened (score^1.5) so a clear leader commits to a decisive answer
 - **Smarter confidence** — counts only evidence supporting the winning OS, groups evidence by real probe family (tcp/ports/http/tls/banner), and rewards a wide lead over the runner-up
-- **HEAD → GET fallback** for embedded web servers that reject `HEAD`
+- **HEAD -> GET fallback** for embedded web servers that reject `HEAD`
 
 **Speed**
 - ICMP TTL probe runs once, in parallel with the port scan (was up to 3 sequential pings)
@@ -35,7 +43,7 @@ Professional terminal-based OS fingerprinting tool. Performs passive, low-impact
 - Probability-based OS estimation — Linux, Windows, Android, iOS, macOS, BSD
 - Windows Firewall-aware heuristics (filtered port cluster detection)
 - Mobile device heuristics (port 62078, ADB port 5555, TTL-only ping fallback)
-- Confidence scoring with 5 levels (Very Low → Very High)
+- Confidence scoring with 5 levels (Very Low to Very High)
 - Rich terminal UI with progress bar and probability bar chart
 - JSON output with optional `--output-file` save
 - External JSON signature files — add new OS signatures without touching code
@@ -86,7 +94,7 @@ osdetect 203.0.113.10 --verbose
 
 ```
 ╔══════════════════════════════════════════════╗
-║           OSDETECT v1.3.0                    ║
+║           OSDETECT v1.3.1                    ║
 ║         OS Fingerprinting Tool               ║
 ╚══════════════════════════════════════════════╝
 Target
@@ -186,6 +194,13 @@ signatures/              OS signature JSON files (easily extensible)
 ```
 
 ## Changelog
+
+### v1.3.1
+- Terminal: removed all emoji OS icons and status symbols; evidence uses `+`, warnings `!`, errors `Error:`, info `Info:`
+- Terminal: fixed possible `UnicodeEncodeError` on Windows consoles with legacy code pages
+- Terminal: removed unused `_format_os_name()`; `_OS_META` entries are now (name, colour)
+- Docs/tests: replaced non-ASCII arrows with plain text
+- Version bumped to 1.3.1 (`pyproject.toml`, `config.py`, README)
 
 ### v1.3.0
 - Analyzer: TTL scored once per scan and weighted by how many OS signatures share it

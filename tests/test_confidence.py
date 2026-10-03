@@ -3,7 +3,7 @@ from src.fingerprint.confidence import calculate_confidence, ConfidenceLevel
 from src.fingerprint.analyzer import AnalysisResult, Evidence
 from src.config import OS_CATEGORIES
 
-# Ordinal order for ConfidenceLevel comparisons (lowest → highest)
+# Ordinal order for ConfidenceLevel comparisons (lowest to highest)
 _CONFIDENCE_ORDER = [
     ConfidenceLevel.VERY_LOW,
     ConfidenceLevel.LOW,

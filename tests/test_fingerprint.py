@@ -80,7 +80,7 @@ class TestAnalyzer:
         assert result.likely_os == "linux"
 
     def test_linux_no_windows_ports(self, analyzer):
-        """TTL 64 + SSH + no Windows ports → Linux over macOS."""
+        """TTL 64 + SSH + no Windows ports: Linux over macOS."""
         ports = [
             PortResult(22, "open", "ssh"),
             PortResult(80, "open", "http"),
