@@ -16,11 +16,16 @@ class PortResult:
     banner: str = ""
 
 
+# Client-speaks-first protocols never send an unsolicited banner, so waiting
+# for one just burns the recv timeout. HTTP/TLS are probed separately.
+SILENT_PORTS = frozenset({80, 443, 8080, 8443, 9090, 9200, 9300, 5985, 5986, 993, 995, 3389, 135, 139, 445})
+
+
 def scan_port(ip: str, port: int, timeout: float = 5.0) -> PortResult:
     service = SERVICE_MAP.get(port, "unknown")
     try:
         with socket.create_connection((ip, port), timeout=timeout) as sock:
-            banner = _grab_banner(sock, timeout)
+            banner = "" if port in SILENT_PORTS else _grab_banner(sock, timeout)
             return PortResult(port=port, state="open", service=service, banner=banner)
     except (ConnectionRefusedError,):
         return PortResult(port=port, state="closed", service=service)

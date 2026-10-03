@@ -15,8 +15,11 @@ def calculate_confidence(result: AnalysisResult, is_public: bool = False) -> Con
         return ConfidenceLevel.VERY_LOW
 
     top_prob = result.probabilities.get(result.likely_os, 0)
-    evidence_count = len([e for e in result.evidence if e.weight > 0])
-    unique_sources = len({e.description.split()[0] for e in result.evidence if e.weight > 0})
+    # Only evidence that supports the winning OS counts towards confidence;
+    # evidence for other OSes is handled by conflict detection below.
+    supporting = [e for e in result.evidence if e.weight > 0 and e.os_key == result.likely_os]
+    evidence_count = len(supporting)
+    unique_sources = len({_source_of(e.description) for e in supporting})
     has_conflicts = _has_conflicting_evidence(result)
 
     score = 0.0
@@ -42,6 +45,14 @@ def calculate_confidence(result: AnalysisResult, is_public: bool = False) -> Con
     elif unique_sources >= 1:
         score += 0.5
 
+    # A wide lead over the runner-up is itself strong evidence.
+    others = sorted((v for k, v in result.probabilities.items() if k != result.likely_os), reverse=True)
+    margin = top_prob - (others[0] if others else 0)
+    if margin >= 60:
+        score += 1.0
+    elif margin < 20:
+        score -= 1.0
+
     if has_conflicts:
         score -= 1.5
 
@@ -61,6 +72,22 @@ def calculate_confidence(result: AnalysisResult, is_public: bool = False) -> Con
     if score >= 1.0:
         return ConfidenceLevel.LOW
     return ConfidenceLevel.VERY_LOW
+
+
+_SOURCE_PREFIXES = (
+    ("TTL", "tcp"), ("Port", "ports"), ("Service", "services"), ("Windows port", "ports"),
+    ("HTTP", "http"), ("Header", "http"), ("TLS", "tls"), ("Reverse", "dns"),
+    ("ADB", "ports"), ("SSH", "ports"), ("Multiple", "ports"), ("Web-only", "ports"),
+    ("No server", "ports"), ("All ports", "ports"),
+)
+
+
+def _source_of(description: str) -> str:
+    """Map an evidence description to the probe family that produced it."""
+    for prefix, source in _SOURCE_PREFIXES:
+        if description.startswith(prefix):
+            return source
+    return "banner"
 
 
 def _has_conflicting_evidence(result: AnalysisResult) -> bool:

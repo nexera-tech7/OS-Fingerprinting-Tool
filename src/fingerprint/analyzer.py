@@ -66,15 +66,19 @@ class Analyzer:
         return result
 
     def _score_tcp(self, fps: list[TCPFingerprint], result: AnalysisResult) -> None:
-        for fp in fps:
-            if fp.ttl is None:
-                continue
-            initial_ttl = normalize_ttl(fp.ttl)
-            for sig in self._signatures.values():
-                if initial_ttl in sig.ttl_values:
-                    w = 15.0 * sig.weight
-                    result.scores[sig.key] += w
-                    result.evidence.append(Evidence(f"TTL {fp.ttl} (initial ~{initial_ttl}) matches {sig.name}", sig.key, w))
+        # TTL is a property of the host, not of each probe: score it once.
+        fp = next((f for f in fps if f.ttl is not None), None)
+        if fp is None:
+            return
+        initial_ttl = normalize_ttl(fp.ttl)
+        matches = [s for s in self._signatures.values() if initial_ttl in s.ttl_values]
+        # A TTL shared by many OSes (64 -> Linux/Android/iOS/macOS) is weak
+        # evidence for each; a rare one (128 -> Windows) is strong.
+        specificity = len(matches) ** -0.5 if matches else 0.0
+        for sig in matches:
+            w = 15.0 * sig.weight * specificity
+            result.scores[sig.key] += w
+            result.evidence.append(Evidence(f"TTL {fp.ttl} (initial ~{initial_ttl}) matches {sig.name}", sig.key, w))
 
     def _score_ports(self, ports: list[PortResult], result: AnalysisResult) -> None:
         open_ports = {p.port for p in ports if p.state == "open"}
@@ -112,10 +116,15 @@ class Analyzer:
                 continue
 
             scored_keys: set[str] = set()
+            hints = [h.lower() for h in banner.os_hints if h.lower() in self._signatures]
+            # Strong (OS/distro named) banners are worth 25; weak (cross-platform
+            # software) only 8. Either way the points are shared across hints so
+            # "OpenSSH" can't hand Linux, BSD and macOS 20 points each.
+            base = 25.0 if banner.strength == "strong" else 8.0
             for os_hint in banner.os_hints:
                 hint_key = os_hint.lower()
                 if hint_key in self._signatures:
-                    w = 20.0
+                    w = base / len(hints)
                     result.scores[hint_key] += w
                     label = banner.service_name or "Service"
                     result.evidence.append(Evidence(f"{label} banner suggests {self._signatures[hint_key].name}", hint_key, w))
@@ -134,12 +143,27 @@ class Analyzer:
                         break
 
     def _score_http(self, fps: list[HTTPFingerprint], result: AnalysisResult) -> None:
+        seen: set[tuple] = set()
         for fp in fps:
             if not fp.server:
                 continue
+            # Port 80 and 443 usually return the same headers; count them once.
+            sig_key = (fp.server, tuple(sorted(fp.headers.items())))
+            if sig_key in seen:
+                continue
+            seen.add(sig_key)
 
             server_lower = fp.server.lower()
+            tagged = _server_os_tag(server_lower)
+            if tagged in self._signatures:
+                # e.g. "Apache/2.4 (Ubuntu)" or "(Win64)": the platform is stated
+                # outright, so skip the generic nginx/apache keyword guesses.
+                w = 25.0
+                result.scores[tagged] += w
+                result.evidence.append(Evidence(f"HTTP Server '{fp.server}' names {self._signatures[tagged].name}", tagged, w))
             for sig in self._signatures.values():
+                if tagged:
+                    continue
                 for kw in sig.http_server_keywords:
                     if kw.lower() in server_lower:
                         w = 18.0 * sig.weight
@@ -197,7 +221,8 @@ class Analyzer:
         filtered_ports = {p for p, s in all_ports.items() if s == "filtered"}
 
         # Ports exclusive to Linux in practice
-        linux_exclusive = {111, 2049, 6379, 9200, 9300, 27017}  # rpcbind, NFS, Redis, ES, Mongo
+        linux_exclusive = {111, 2049}                           # rpcbind, NFS: effectively Unix-only
+        linux_typical   = {6379, 9200, 9300, 27017}             # Redis/ES/Mongo: usually Linux, but run on Windows too
         linux_server    = {22, 25, 53, 3306, 5432}              # SSH, SMTP, DNS, MySQL, Postgres
 
         exclusive_open = linux_exclusive & open_ports
@@ -215,6 +240,15 @@ class Analyzer:
                 f"Port {port} ({port_names.get(port, 'Linux service')}) open — Linux-exclusive service",
                 "linux", w
             ))
+
+        has_windows_ports = bool({135, 139, 445, 3389} & open_ports)
+        if not has_windows_ports:
+            for port in sorted(linux_typical & open_ports):
+                w = 6.0
+                result.scores["linux"] += w
+                result.evidence.append(Evidence(
+                    f"Port {port} open — service typically hosted on Linux", "linux", w
+                ))
 
         # SSH + any database/service port is a classic Linux server stack
         if 22 in open_ports and (server_open - {22}):
@@ -278,12 +312,14 @@ class Analyzer:
             or result.scores.get("windows", 0) > 0
         )
 
-        # Open Windows ports: always score regardless
-        for port in cluster_open:
-            w = 12.0
+        # Open Windows ports are already scored by _score_ports; scoring them
+        # again here double-counted every SMB/RDP/RPC port.
+        if len(cluster_open) >= 2:
+            w = 10.0
             result.scores["windows"] += w
+            ports_str = ", ".join(str(p) for p in sorted(cluster_open))
             result.evidence.append(Evidence(
-                f"Port {port} open (indicator for Windows)",
+                f"Windows port combination ({ports_str}) open together — strong Windows stack",
                 "windows", w
             ))
 
@@ -514,7 +550,11 @@ class Analyzer:
             result.likely_os = "unknown"
             return
 
-        raw_probs = {k: (v / total) * 100 for k, v in clamped.items()}
+        # Sharpen the distribution (score^1.5) so a clear leader commits to a
+        # decisive answer instead of being diluted by weak background hints.
+        sharpened = {k: v ** 1.5 for k, v in clamped.items()}
+        sharp_total = sum(sharpened.values())
+        raw_probs = {k: (v / sharp_total) * 100 for k, v in sharpened.items()}
 
         rounded = {k: int(round(v)) for k, v in raw_probs.items()}
         diff = 100 - sum(rounded.values())
@@ -524,3 +564,19 @@ class Analyzer:
 
         result.probabilities = rounded
         result.likely_os = max(rounded, key=lambda k: rounded[k])
+
+
+_HTTP_OS_TAGS = (
+    ("windows", ("(win32)", "(win64)", "(windows", "microsoft-iis", "microsoft-httpapi")),
+    ("bsd", ("(freebsd)", "(openbsd)", "(netbsd)", "pfsense", "opnsense")),
+    ("macos", ("(darwin)", "(mac os x)", "(macos)")),
+    ("linux", ("(ubuntu)", "(debian)", "(centos)", "(red hat", "(fedora)", "(unix)", "(rocky", "(almalinux)", "(amazon", "(suse)", "(raspbian)")),
+)
+
+
+def _server_os_tag(server_lower: str) -> str:
+    """Return the OS key explicitly named in a Server header, or ''."""
+    for key, tags in _HTTP_OS_TAGS:
+        if any(t in server_lower for t in tags):
+            return key
+    return ""

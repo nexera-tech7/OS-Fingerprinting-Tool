@@ -3,6 +3,8 @@ import logging
 import ssl
 from dataclasses import dataclass, field
 
+from ..config import VERSION
+
 logger = logging.getLogger(__name__)
 
 # Headers captured beyond Server — ordered by fingerprinting value
@@ -45,8 +47,14 @@ def collect_http_fingerprint(ip: str, port: int = 80, timeout: float = 5.0, use_
         else:
             conn = http.client.HTTPConnection(ip, port, timeout=timeout)
 
-        conn.request("HEAD", "/", headers={"Host": ip, "User-Agent": "osdetect/1.0", "Accept": "*/*"})
+        req_headers = {"Host": ip, "User-Agent": f"osdetect/{VERSION}", "Accept": "*/*"}
+        conn.request("HEAD", "/", headers=req_headers)
         resp = conn.getresponse()
+        if resp.status in (400, 405, 501) and not resp.getheader("Server"):
+            # Some embedded servers reject HEAD; retry once with GET.
+            resp.read()
+            conn.request("GET", "/", headers=req_headers)
+            resp = conn.getresponse()
 
         fp.status_code = resp.status
         fp.server = resp.getheader("Server", "")

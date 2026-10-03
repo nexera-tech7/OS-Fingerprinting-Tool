@@ -1,6 +1,7 @@
 import sys
 import time
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from .cli import parse_args
@@ -8,7 +9,7 @@ from .config import ScanConfig
 from .network.validation import validate_ip, is_scannable, AddressType
 from .network.resolver import reverse_dns, detect_mobile_carrier
 from .scanner.ports import scan_ports, PortResult
-from .scanner.tcp import collect_tcp_fingerprint, collect_ttl_only, TCPFingerprint, estimate_hops
+from .scanner.tcp import collect_ttl_only, TCPFingerprint, estimate_hops
 from .scanner.banners import analyze_banner, BannerInfo
 from .scanner.http import collect_http_fingerprint, HTTPFingerprint
 from .scanner.tls import collect_tls_fingerprint, TLSFingerprint
@@ -55,30 +56,14 @@ def main(argv: list[str] | None = None) -> int:
         if not config.json_output:
             progress = create_progress()
             with progress:
-                task = progress.add_task("Resolving & scanning ports", total=100)
+                task = progress.add_task("Scanning ports & probing TTL", total=100)
 
-                port_results = scan_ports(validation.normalized, config.ports, config.timeout)
-                progress.update(task, completed=30, description="Collecting TCP/TTL evidence")
+                def on_stage(done: int, description: str) -> None:
+                    progress.update(task, completed=done, description=description)
 
-                open_ports = [p for p in port_results if p.state == "open"]
-                reachable = len(open_ports) > 0
-
-                tcp_fps = _collect_tcp_evidence(validation.normalized, open_ports, config.timeout)
-                progress.update(task, completed=50, description="Analyzing banners")
-
-                banners = [analyze_banner(p.banner, p.port) for p in open_ports if p.banner]
-                progress.update(task, completed=60, description="HTTP fingerprinting")
-
-                http_fps = _collect_http_evidence(validation.normalized, open_ports, config.timeout)
-                progress.update(task, completed=75, description="TLS fingerprinting")
-
-                tls_fps = _collect_tls_evidence(validation.normalized, open_ports, config.timeout)
-                progress.update(task, completed=90, description="Analyzing evidence")
-
-                signatures = load_signatures()
-                analyzer = Analyzer(signatures)
-                analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public, mobile_carrier)
-                confidence = calculate_confidence(analysis, is_public)
+                port_results, open_ports, reachable, tcp_fps, banners, http_fps, tls_fps, analysis, confidence = _run_scan(
+                    validation.normalized, config, is_public, mobile_carrier, on_stage
+                )
                 progress.update(task, completed=100, description="Done")
 
             elapsed = time.monotonic() - scan_start
@@ -139,34 +124,37 @@ def _run_scan(
     config: ScanConfig,
     is_public: bool,
     mobile_carrier: str | None = None,
+    on_stage=None,
 ):
-    """Shared scan pipeline used by the JSON / non-progress path."""
-    port_results = scan_ports(ip, config.ports, config.timeout)
-    open_ports = [p for p in port_results if p.state == "open"]
-    reachable = len(open_ports) > 0
-    tcp_fps = _collect_tcp_evidence(ip, open_ports, config.timeout)
-    banners = [analyze_banner(p.banner, p.port) for p in open_ports if p.banner]
-    http_fps = _collect_http_evidence(ip, open_ports, config.timeout)
-    tls_fps = _collect_tls_evidence(ip, open_ports, config.timeout)
-    signatures = load_signatures()
-    analyzer = Analyzer(signatures)
+    """Single scan pipeline shared by the terminal and JSON paths.
+
+    The ICMP TTL probe runs concurrently with the port scan, and the HTTP and
+    TLS probes run concurrently with each other, so total time is roughly
+    the slowest probe in each phase rather than the sum.
+    """
+    stage = on_stage or (lambda done, desc: None)
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        ttl_future = pool.submit(collect_ttl_only, ip, config.timeout)
+        port_results = scan_ports(ip, config.ports, config.timeout)
+        open_ports = [p for p in port_results if p.state == "open"]
+        reachable = len(open_ports) > 0
+        stage(40, "HTTP/TLS fingerprinting")
+
+        http_future = pool.submit(_collect_http_evidence, ip, open_ports, config.timeout)
+        tls_future = pool.submit(_collect_tls_evidence, ip, open_ports, config.timeout)
+        banners = [analyze_banner(p.banner, p.port) for p in open_ports if p.banner]
+
+        ttl_fp = ttl_future.result()
+        tcp_fps = [ttl_fp] if ttl_fp.ttl is not None else []
+        http_fps = http_future.result()
+        tls_fps = tls_future.result()
+
+    stage(90, "Analyzing evidence")
+    analyzer = Analyzer(load_signatures())
     analysis = analyzer.analyze(tcp_fps, port_results, banners, http_fps, tls_fps, is_public, mobile_carrier)
     confidence = calculate_confidence(analysis, is_public)
     return port_results, open_ports, reachable, tcp_fps, banners, http_fps, tls_fps, analysis, confidence
-
-
-def _collect_tcp_evidence(ip: str, open_ports: list[PortResult], timeout: float) -> list[TCPFingerprint]:
-    fps: list[TCPFingerprint] = []
-    for p in open_ports[:3]:
-        fp = collect_tcp_fingerprint(ip, p.port, timeout)
-        fps.append(fp)
-    # If no ports are open (e.g. mobile device with firewall) still attempt a
-    # ping-based TTL collection so the mobile heuristics have TTL evidence.
-    if not fps:
-        fp = collect_ttl_only(ip, timeout)
-        if fp.ttl is not None:
-            fps.append(fp)
-    return fps
 
 
 def _collect_http_evidence(ip: str, open_ports: list[PortResult], timeout: float) -> list[HTTPFingerprint]:

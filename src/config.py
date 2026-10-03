@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = "1.2.1"
+VERSION = "1.3.0"
 APP_NAME = "OSDETECT"
 
 DEFAULT_TIMEOUT = 5

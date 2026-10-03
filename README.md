@@ -1,22 +1,29 @@
-# osdetect v1.2.0
+# osdetect v1.3.0
 
 Professional terminal-based OS fingerprinting tool. Performs passive, low-impact network fingerprinting against authorized targets and estimates the likely operating system using probability-based scoring.
 
-## What's New in v1.2.0
+## What's New in v1.3.0
 
-- **Concurrent port scanning** — up to 50 threads in parallel, dramatically faster than sequential scanning
-- **Windows detection overhaul** — filtered port cluster heuristic, ICMP-blocked TTL inference, NTLM/WinRM/NetBIOS detection
-- **iOS / iPhone IPv6 fix** — port 62078 now scored before the server-port guard; IPv6 ping uses correct `ping -6` / `ping6` command
-- **Smarter conflict detection** — `_has_conflicting_evidence` now uses probability spread instead of a raw key count
-- **TLS cert keywords** — each OS signature has dedicated `tls.cert_keywords` instead of reusing banner keywords
-- **Richer HTTP fingerprinting** — captures 13 headers including `Set-Cookie`, `ETag`, `X-Varnish`, `X-Runtime`
-- **Signature caching** — `load_signatures()` is `lru_cache`-memoised, signatures are read from disk once per process
-- **`--output-file` flag** — save results as JSON to a file without needing shell redirection
-- **Elapsed time** — scan duration shown in terminal output and `scan_time_seconds` field in JSON
-- **Deduplicated scan pipeline** — progress-bar and JSON paths share a single `_run_scan()` function
-- **50+ banner patterns** — added Redis, Memcached, MySQL, PostgreSQL, MSSQL, MikroTik, Cisco, Darwin, JDWP, OpenSSH-for-Windows, MS Exchange patterns
-- **Exit code propagation** — `osdetect` CLI entry point wraps `main()` with `sys.exit()` so `$?` is always correct
-- **7 bug fixes** from v1.0 (see Changelog)
+**Accuracy**
+- **TTL scored once** — the same ping TTL was previously counted once per probe (up to 3×)
+- **TTL weighted by rarity** — TTL 64 is shared by Linux/Android/iOS/macOS so it counts for less; TTL 128 (Windows) and 255 (BSD) stay strong
+- **Strong vs weak banners** — banners that name an OS or distro (`Ubuntu`, `OpenSSH_for_Windows`) score 25; cross-platform software (nginx, MySQL, generic OpenSSH) scores 8, split across candidate OSes instead of 20 each
+- **`OpenSSH_for_Windows` fix** — the Windows SSH patterns were shadowed by the generic OpenSSH pattern and never matched
+- **HTTP `Server` OS tags** — `Apache/2.4 (Ubuntu)`, `(Win64)`, `(FreeBSD)` etc. are treated as explicit platform statements and replace the generic nginx/apache guesses
+- **No double counting** — open Windows ports were scored twice (port indicator + heuristic); now a single indicator plus a combination bonus. Identical headers on ports 80 and 443 are counted once
+- **Redis / Elasticsearch / MongoDB** are no longer treated as Linux-exclusive (they run on Windows); only rpcbind and NFS are
+- **Sharper probabilities** — scores are sharpened (score^1.5) so a clear leader commits to a decisive answer
+- **Smarter confidence** — counts only evidence supporting the winning OS, groups evidence by real probe family (tcp/ports/http/tls/banner), and rewards a wide lead over the runner-up
+- **HEAD → GET fallback** for embedded web servers that reject `HEAD`
+
+**Speed**
+- ICMP TTL probe runs once, in parallel with the port scan (was up to 3 sequential pings)
+- HTTP and TLS probes run concurrently
+- No more ~2s banner wait on client-speaks-first ports (80, 443, 445, 3389, ...)
+- Single `_run_scan()` pipeline for both terminal and JSON modes
+
+**Quality**
+- 86 tests (16 new analyzer/banner/confidence regression tests)
 
 ## Features
 
@@ -79,7 +86,7 @@ osdetect 203.0.113.10 --verbose
 
 ```
 ╔══════════════════════════════════════════════╗
-║           OSDETECT v1.2.0                    ║
+║           OSDETECT v1.3.0                    ║
 ║         OS Fingerprinting Tool               ║
 ╚══════════════════════════════════════════════╝
 Target
@@ -180,6 +187,19 @@ signatures/              OS signature JSON files (easily extensible)
 
 ## Changelog
 
+### v1.3.0
+- Analyzer: TTL scored once per scan and weighted by how many OS signatures share it
+- Analyzer: banner evidence split into strong (OS-named) and weak (cross-platform software), shared across candidate OSes
+- Analyzer: HTTP `Server` header OS tags (`(Ubuntu)`, `(Win64)`, `(FreeBSD)`...) override generic keyword guesses; duplicate HTTP/HTTPS fingerprints deduplicated
+- Analyzer: removed Windows open-port double counting; added combined-ports bonus
+- Analyzer: Redis/ES/Mongo downgraded from Linux-exclusive to Linux-typical (suppressed when Windows ports are open)
+- Analyzer: probability distribution sharpened (score^1.5)
+- Banners: `OpenSSH_for_Windows` / Windows SSH patterns moved ahead of the generic OpenSSH pattern; added `strength` field
+- Confidence: supporting-evidence-only counting, real probe-family grouping, lead-margin bonus/penalty
+- HTTP: `HEAD` → `GET` fallback, User-Agent reports the real version
+- Performance: single parallel ping, concurrent HTTP+TLS probes, skip banner wait on silent ports
+- Tests: new `tests/test_analyzer.py` (16 tests)
+
 ### v1.2.0
 - Concurrent port scanning with `ThreadPoolExecutor` (up to 50 workers)
 - Windows heuristics: filtered port cluster scoring, ICMP-blocked TTL inference, NTLM/WinRM/NetBIOS banner patterns, `netbios` service keyword, WinRM ports 5985/5986
@@ -209,6 +229,7 @@ signatures/              OS signature JSON files (easily extensible)
 - Results are **probability estimates**, not definitive identifications.
 - A public IP may belong to a router, firewall, VPN, proxy, load balancer, or carrier NAT.
 - Android and iOS cannot be reliably distinguished from a public IP — lower confidence by design.
+- Fingerprinting uses ICMP TTL, open ports, banners, HTTP headers and TLS certificates — no raw-socket TCP/IP stack probing, so closely related OSes (e.g. Linux vs. Android) may be hard to separate.
 - Firewalled or hardened hosts yield weaker evidence. Windows Firewall in particular blocks ICMP and hides SMB/RDP ports.
 
 ## Authorized Use Only
@@ -221,7 +242,7 @@ Use only against systems you own, have explicit written authorization to scan, o
 pytest tests/ -v
 ```
 
-56 tests, no network calls — all mocked.
+86 tests, no network calls — all mocked.
 
 ## License
 

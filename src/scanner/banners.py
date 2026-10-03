@@ -12,10 +12,15 @@ class BannerInfo:
     version: str = ""
     os_hints: list[str] = field(default_factory=list)
     port: int = 0  # source port for traceability
+    # "strong" = the banner names an OS/distro; "weak" = cross-platform software
+    # (nginx, MySQL, generic OpenSSH...) that merely *tends* to run on that OS.
+    strength: str = "strong"
 
 
 BANNER_PATTERNS: list[tuple[str, str, list[str]]] = [
     # SSH
+    (r"SSH-2\.0-.*OpenSSH_for_Windows", "OpenSSH for Windows", ["windows"]),
+    (r"SSH-2\.0-.*Windows", "SSH", ["windows"]),
     (r"OpenSSH[_ ](\S+).*Ubuntu", "OpenSSH", ["linux"]),
     (r"OpenSSH[_ ](\S+).*Debian", "OpenSSH", ["linux"]),
     (r"OpenSSH[_ ](\S+).*FreeBSD", "OpenSSH", ["bsd"]),
@@ -28,8 +33,6 @@ BANNER_PATTERNS: list[tuple[str, str, list[str]]] = [
     (r"OpenSSH[_ ](\S+).*Kali", "OpenSSH", ["linux"]),
     (r"OpenSSH[_ ](\S+)", "OpenSSH", ["linux", "bsd", "macos"]),
     (r"dropbear[_ ]?(\S*)", "Dropbear SSH", ["linux"]),
-    (r"SSH-2\.0-.*Windows", "SSH", ["windows"]),
-    (r"SSH-2\.0-.*OpenSSH_for_Windows", "OpenSSH for Windows", ["windows"]),
     (r"SSH-2\.0-libssh", "libssh", ["linux"]),
     # FTP
     (r"Microsoft FTP Service", "Microsoft FTP", ["windows"]),
@@ -101,6 +104,14 @@ BANNER_PATTERNS: list[tuple[str, str, list[str]]] = [
 ]
 
 
+# Services that run on several OSes: they hint at an OS but never prove it.
+GENERIC_SERVICES = frozenset({
+    "OpenSSH", "Dropbear SSH", "libssh", "vsftpd", "ProFTPD", "Pure-FTPd", "wu-ftpd",
+    "Postfix", "Exim", "Sendmail", "Apache", "nginx", "lighttpd", "LiteSpeed", "Caddy",
+    "MySQL", "PostgreSQL", "MongoDB", "Redis", "Memcached", "Elasticsearch", "CUPS",
+})
+
+
 def analyze_banner(raw: str, port: int = 0) -> BannerInfo:
     if not raw:
         return BannerInfo(raw="", port=port)
@@ -109,6 +120,23 @@ def analyze_banner(raw: str, port: int = 0) -> BannerInfo:
         match = re.search(pattern, raw, re.IGNORECASE)
         if match:
             version = match.group(1) if match.lastindex and match.lastindex >= 1 else ""
-            return BannerInfo(raw=raw, service_name=service_name, version=version, os_hints=list(os_hints), port=port)
+            # An OS-specific pattern (single hint on a non-generic service, or a
+            # distro-tagged variant) is strong; a generic one is weak.
+            weak = service_name in GENERIC_SERVICES and (len(os_hints) > 1 or not _names_os(raw))
+            return BannerInfo(
+                raw=raw, service_name=service_name, version=version, os_hints=list(os_hints),
+                port=port, strength="weak" if weak else "strong",
+            )
 
     return BannerInfo(raw=raw, port=port)
+
+
+_OS_TAGS = re.compile(
+    r"ubuntu|debian|centos|red.?hat|fedora|raspbian|alpine|kali|rocky|alma|suse|arch|"
+    r"freebsd|openbsd|netbsd|macos|darwin|win32|win64|windows",
+    re.IGNORECASE,
+)
+
+
+def _names_os(raw: str) -> bool:
+    return bool(_OS_TAGS.search(raw))
